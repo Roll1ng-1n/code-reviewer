@@ -83,6 +83,10 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
              "优先级最高，压过 spec_kb.paths 与约定目录 specs/、.reviewer/specs/）",
     )
     parser.add_argument("--json", dest="as_json", action="store_true", help="输出完整 Report JSON（schema-v1）")
+    parser.add_argument(
+        "--show-nits", dest="show_nits", action="store_true",
+        help="展开 gatekeeper 默认折叠的 nit 组（仅人类可读渲染生效；mentor 不折叠，忽略此参数）",
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -253,11 +257,11 @@ def _empty_changes_report(
     }
 
 
-def _emit(report: dict, *, as_json: bool) -> None:
+def _emit(report: dict, *, as_json: bool, show_nits: bool = False) -> None:
     if as_json:
         print(json.dumps(report, ensure_ascii=False, indent=2))
     else:
-        print(render_human(report))
+        print(render_human(report, show_nits=show_nits))
 
 
 def _cmd_check(args: argparse.Namespace, config: Config) -> int:
@@ -365,7 +369,7 @@ def _run_command(args: argparse.Namespace, *, config: Config, default_mode: str)
             head_ref=head_ref,
             spec_sources=spec_sources,
         )
-    _emit(report, as_json=args.as_json)
+    _emit(report, as_json=args.as_json, show_nits=args.show_nits)
     return exit_code_for(report["summary"]["verdict"])
 
 
