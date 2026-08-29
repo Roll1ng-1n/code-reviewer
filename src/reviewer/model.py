@@ -13,6 +13,8 @@ import urllib.request
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol, runtime_checkable
 
+from .config import Config, ConfigError
+
 DEFAULT_MODEL = "deepseek-chat"
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_TIMEOUT_S = 180.0
@@ -73,9 +75,24 @@ class DeepSeekProvider:
         return data["choices"][0]["message"]["content"]
 
 
-def make_provider(model: str | None = None) -> ModelProvider:
-    """MVP 单模型决策：统一 DeepSeek（``model`` 名仅用于记录进 metadata）。"""
-    return DeepSeekProvider(model or DEFAULT_MODEL)
+def make_provider(config: Config) -> ModelProvider:
+    """按配置路由 provider（#15）：MVP 仅支持 deepseek。
+
+    密钥只从 ``config.model.api_key_env`` 指定的环境变量读取（user story 17），
+    不接受配置文件传入；构造期缺失 → :class:`ConfigError`（配置错误，CLI 退出码 64），
+    与运行期模型调用失败（→ 70）语义区分。
+    """
+    if config.model.provider != "deepseek":
+        raise ConfigError(
+            f"model.provider 暂只支持 \"deepseek\"（MVP 单模型），配置为 {config.model.provider!r}"
+        )
+    key = os.environ.get(config.model.api_key_env)
+    if not key:
+        raise ConfigError(
+            f"环境变量 {config.model.api_key_env} 未设置：密钥只从环境变量读取，"
+            "不写入配置文件（如需换环境变量名，改配置文件 model.api_key_env）"
+        )
+    return DeepSeekProvider(config.model.name, api_key=key)
 
 
 class ScriptedProvider:
