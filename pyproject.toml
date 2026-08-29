@@ -15,5 +15,11 @@ dependencies = [
 [project.scripts]
 reviewer = "reviewer.cli:main"
 
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/reviewer"]

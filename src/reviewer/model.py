@@ -1,8 +1,8 @@
 """模型抽象层：可替换 provider 缝（Spec #12：模型供应商是可替换的抽象层）。
 
 - 密钥只从环境变量读取（user story 17）
-- 专家节点只依赖 :class:`ModelProvider` 协议；测试注入脚本化假 provider 走同一缝
-  （假 provider 与 CLI 缝测试套件由 实现 2/11（#14）落地）
+- 专家节点只依赖 :class:`ModelProvider` 协议；:class:`ScriptedProvider` 是零网络
+  脚本化假 provider（#14 落地），CLI 缝测试经 monkeypatch make_provider 注入同一缝
 """
 
 from __future__ import annotations
@@ -10,13 +10,15 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
-from typing import Any, Protocol
+from collections.abc import Callable, Sequence
+from typing import Any, Protocol, runtime_checkable
 
 DEFAULT_MODEL = "deepseek-chat"
 DEFAULT_BASE_URL = "https://api.deepseek.com"
 DEFAULT_TIMEOUT_S = 180.0
 
 
+@runtime_checkable
 class ModelProvider(Protocol):
     """一次 system+user 补全，返回原始文本。"""
 
@@ -74,3 +76,46 @@ class DeepSeekProvider:
 def make_provider(model: str | None = None) -> ModelProvider:
     """MVP 单模型决策：统一 DeepSeek（``model`` 名仅用于记录进 metadata）。"""
     return DeepSeekProvider(model or DEFAULT_MODEL)
+
+
+class ScriptedProvider:
+    """脚本化假 provider：按调用序列/专家身份/回调返回预定响应，全程零网络。
+
+    三种脚本方式按优先级生效：
+
+    1. ``callback``：可编程回调 ``(system, user) -> str``，完全自定义行为
+       （含抛异常模拟模型调用失败）；
+    2. ``by_expert``：专家身份 → 响应文本。key 需出现在该专家的 system
+       提示词中（如 ``"logic"``），即「按调用上下文路由响应」；
+    3. ``responses``：按调用顺序依次出队的响应队列。
+
+    每次调用的 ``(system, user)`` 记录在 ``calls``，供测试断言调用上下文。
+    实现放在产品模块而非 tests/：它同时是 #10 基线臂与未来集成测试的公共设施。
+    """
+
+    def __init__(
+        self,
+        responses: Sequence[str] = (),
+        *,
+        by_expert: dict[str, str] | None = None,
+        callback: Callable[[str, str], str] | None = None,
+        model_name: str = "scripted-fake",
+    ) -> None:
+        self.model_name = model_name
+        self._responses = list(responses)
+        self._by_expert = dict(by_expert) if by_expert else {}
+        self._callback = callback
+        self.calls: list[tuple[str, str]] = []
+
+    def complete(self, *, system: str, user: str) -> str:
+        self.calls.append((system, user))
+        if self._callback is not None:
+            return self._callback(system, user)
+        for expert, response in self._by_expert.items():
+            if expert in system:
+                return response
+        if self._responses:
+            return self._responses.pop(0)
+        raise AssertionError(
+            "ScriptedProvider：脚本耗尽且无匹配专家身份——请补足脚本"
+        )
