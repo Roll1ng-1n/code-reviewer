@@ -42,6 +42,34 @@ def findings_json() -> Callable[[list[dict[str, Any]]], str]:
 
 
 @pytest.fixture
+def panel(findings_json: Callable[[list[dict[str, Any]]], str]) -> Callable[..., ScriptedProvider]:
+    """四专家 by_expert 脚本工厂（#18 专家团拓扑的缝测试设施）。
+
+    ``panel()`` → 四专家全空应答；``panel(logic=[finding])`` → logic 专家出
+    指定发现、其余三位空应答。返回 :class:`ScriptedProvider`（by_expert 按
+    专家 system 提示词路由，零网络）。单专家时代的按序脚本用例统一迁移至此
+    形态——四专家并行下按序队列的出队者不再确定，行为契约不变。
+    """
+
+    def _make(
+        *,
+        architecture: list[dict[str, Any]] | None = None,
+        logic: list[dict[str, Any]] | None = None,
+        spec: list[dict[str, Any]] | None = None,
+        style: list[dict[str, Any]] | None = None,
+    ) -> ScriptedProvider:
+        scripts = {
+            "architecture": findings_json(architecture or []),
+            "logic": findings_json(logic or []),
+            "spec": findings_json(spec or []),
+            "style": findings_json(style or []),
+        }
+        return ScriptedProvider(by_expert=scripts)
+
+    return _make
+
+
+@pytest.fixture
 def make_finding() -> Callable[..., dict[str, Any]]:
     """工厂 fixture：造一条通过 Finding 校验的合法发现（category 钉死 logic）。"""
 

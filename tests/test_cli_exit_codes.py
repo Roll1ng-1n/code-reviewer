@@ -8,23 +8,23 @@ from reviewer import cli
 from reviewer.model import ScriptedProvider
 
 
-def test_pass_exit_zero(run_cli, diff_file, findings_json) -> None:
+def test_pass_exit_zero(run_cli, diff_file, panel) -> None:
     """零发现 → verdict=pass → 0。"""
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, _ = run_cli(provider, "check", "--diff-file", str(diff_file))
     assert code == 0
 
 
-def test_concerns_exit_two(run_cli, diff_file, findings_json, make_finding) -> None:
+def test_concerns_exit_two(run_cli, diff_file, panel, make_finding) -> None:
     """仅 concern → verdict=concerns → 2。"""
-    provider = ScriptedProvider([findings_json([make_finding(severity="concern")])])
+    provider = panel(logic=[make_finding(severity="concern")])
     code, out, err, _ = run_cli(provider, "check", "--diff-file", str(diff_file))
     assert code == 2
 
 
-def test_blocked_exit_one(run_cli, diff_file, findings_json, make_finding) -> None:
+def test_blocked_exit_one(run_cli, diff_file, panel, make_finding) -> None:
     """有 blocker → verdict=blocked → 1。"""
-    provider = ScriptedProvider([findings_json([make_finding(severity="blocker")])])
+    provider = panel(logic=[make_finding(severity="blocker")])
     code, out, err, _ = run_cli(provider, "check", "--diff-file", str(diff_file))
     assert code == 1
 

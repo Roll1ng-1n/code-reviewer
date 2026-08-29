@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-from reviewer.model import ScriptedProvider
 
-
-def test_human_render_smoke(run_cli, diff_file, findings_json, make_finding) -> None:
+def test_human_render_smoke(run_cli, diff_file, panel, make_finding) -> None:
     """人类可读输出包含模式、verdict、counts、编号与行级锚定。"""
     finding = make_finding(
         severity="blocker",
@@ -15,7 +13,7 @@ def test_human_render_smoke(run_cli, diff_file, findings_json, make_finding) -> 
         rationale="未判空即解引用",
         suggestion="先判空",
     )
-    provider = ScriptedProvider([findings_json([finding])])
+    provider = panel(logic=[finding])
     code, out, err, _ = run_cli(provider, "check", "--diff-file", str(diff_file))
     assert code == 1
     assert "AI Code Reviewer" in out
@@ -29,9 +27,9 @@ def test_human_render_smoke(run_cli, diff_file, findings_json, make_finding) -> 
     assert "fix: 先判空" in out
 
 
-def test_human_render_empty_findings(run_cli, diff_file, findings_json) -> None:
+def test_human_render_empty_findings(run_cli, diff_file, panel) -> None:
     """零发现的人类可读输出：mentor 模式 + pass。"""
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, _ = run_cli(provider, "precheck", "--diff-file", str(diff_file))
     assert code == 0
     assert "mentor mode" in out

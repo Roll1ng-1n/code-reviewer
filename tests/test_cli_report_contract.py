@@ -5,10 +5,9 @@ from __future__ import annotations
 import json
 
 from reviewer.contract import SCHEMA_VERSION
-from reviewer.model import ScriptedProvider
 
 
-def test_report_five_section_contract(run_cli, diff_file, findings_json, make_finding) -> None:
+def test_report_five_section_contract(run_cli, diff_file, panel, make_finding) -> None:
     """完整 Report 契约断言：五段结构、summary 三键、findings 行级锚定、metadata 字段。"""
     finding = make_finding(
         severity="concern",
@@ -18,7 +17,7 @@ def test_report_five_section_contract(run_cli, diff_file, findings_json, make_fi
         rationale="a + b 对 None 无防护",
         suggestion="加参数校验",
     )
-    provider = ScriptedProvider([findings_json([finding])])
+    provider = panel(logic=[finding])
     code, out, err, _ = run_cli(
         provider,
         "check",
@@ -83,9 +82,9 @@ def test_report_five_section_contract(run_cli, diff_file, findings_json, make_fi
     assert stats["neighborhood_truncated"] is False
 
 
-def test_optional_suggestion_omitted_when_absent(run_cli, diff_file, findings_json, make_finding) -> None:
+def test_optional_suggestion_omitted_when_absent(run_cli, diff_file, panel, make_finding) -> None:
     """suggestion 为空时输出不含该键（exclude_none 语义，字段可选）。"""
-    provider = ScriptedProvider([findings_json([make_finding()])])
+    provider = panel(logic=[make_finding()])
     code, out, err, _ = run_cli(provider, "check", "--diff-file", str(diff_file), "--json")
     assert code == 0
     report = json.loads(out)
@@ -93,14 +92,14 @@ def test_optional_suggestion_omitted_when_absent(run_cli, diff_file, findings_js
     assert "suggestion" not in row
 
 
-def test_json_and_human_render_share_one_report(run_cli, diff_file, findings_json, make_finding) -> None:
+def test_json_and_human_render_share_one_report(run_cli, diff_file, panel, make_finding) -> None:
     """同一 Report 数据两种输出：--json 与人类可读渲染不漂移（user story 13）。"""
     finding = make_finding(severity="blocker", file="x.py", line=3, message="空指针")
-    provider = ScriptedProvider([findings_json([finding])])
+    provider = panel(logic=[finding])
     code_json, out_json, _, _ = run_cli(
         provider, "check", "--diff-file", str(diff_file), "--json"
     )
-    provider2 = ScriptedProvider([findings_json([finding])])
+    provider2 = panel(logic=[finding])
     code_text, out_text, _, _ = run_cli(
         provider2, "check", "--diff-file", str(diff_file)
     )

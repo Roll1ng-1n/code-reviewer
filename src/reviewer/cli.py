@@ -11,6 +11,8 @@ check 基线 = merge-base HEAD <ref 缺省 config.base>；描述来源 = 显式�
 .description_source 标注）> 无；非 git 目录 → 64。
 上下文组装（#17）：context-assembly 图节点产出结构地图 / import 邻域 / 预算统计，
 经 metadata.context_stats 可观测（additive，不升 schema_version）。
+专家团拓扑（#18）：experts.enabled 送达 router（纯规则过滤），Send fan-out
+并行四专家，findings 经 operator.add reducer 汇合后聚合。
 """
 
 from __future__ import annotations
@@ -161,7 +163,8 @@ def _run_review(
     head_ref: str | None,
 ) -> dict:
     provider = make_provider(config)
-    graph = build_review_graph(provider)
+    # #18 接线：experts.enabled 送达 router（纯规则过滤出运行时分支集合）
+    graph = build_review_graph(provider, experts_enabled=config.experts.enabled)
     start = time.monotonic()
     try:
         final = graph.invoke(

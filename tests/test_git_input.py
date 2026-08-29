@@ -57,7 +57,7 @@ def _commit(repo: Path, message: str, file: str, content: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_precheck_collects_staged_and_unstaged(run_cli, findings_json, tmp_path) -> None:
+def test_precheck_collects_staged_and_unstaged(run_cli, panel, tmp_path) -> None:
     """precheck 自调 git：已 staged 与未 staged 的已跟踪文件改动都进 diff。"""
     repo = _init_repo(tmp_path)
     _commit(repo, "base", "a.txt", "base\n")
@@ -65,12 +65,12 @@ def test_precheck_collects_staged_and_unstaged(run_cli, findings_json, tmp_path)
     (repo / "a.txt").write_text("staged-marker\n", encoding="utf-8")  # 已跟踪，已暂存
     _git(repo, "add", "a.txt")
     (repo / "b.txt").write_text("unstaged-marker\n", encoding="utf-8")  # 已跟踪，未暂存
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(provider, "precheck", "--repo", str(repo), "--json")
     assert code == 0
     report = json.loads(out)
     assert report["mode"] == "mentor"
-    prompt = provider.calls[0][1]  # logic 专家的 user prompt 含 diff
+    prompt = provider.calls[0][1]  # 四专家共享同一配方 user prompt（calls[0] 为并行完成之一）
     assert "staged-marker" in prompt
     assert "unstaged-marker" in prompt
     assert report["metadata"]["base_ref"] == "HEAD"
@@ -78,12 +78,12 @@ def test_precheck_collects_staged_and_unstaged(run_cli, findings_json, tmp_path)
     assert report["metadata"]["description_source"] == "none"
 
 
-def test_precheck_unborn_repo_staged_diff(run_cli, findings_json, tmp_path) -> None:
+def test_precheck_unborn_repo_staged_diff(run_cli, panel, tmp_path) -> None:
     """全新仓库（无任何提交）precheck：staged 文件 vs 空树，仍可审、不报错。"""
     repo = _init_repo(tmp_path)
     (repo / "a.txt").write_text("first-marker\n", encoding="utf-8")
     _git(repo, "add", "-A")
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(provider, "precheck", "--repo", str(repo), "--json")
     assert code == 0
     assert "first-marker" in provider.calls[0][1]
@@ -94,13 +94,13 @@ def test_precheck_unborn_repo_staged_diff(run_cli, findings_json, tmp_path) -> N
 # ---------------------------------------------------------------------------
 
 
-def test_check_without_ref_uses_config_base(run_cli, findings_json, tmp_path) -> None:
+def test_check_without_ref_uses_config_base(run_cli, panel, tmp_path) -> None:
     """check 无 ref：基线 = merge-base HEAD <config.base>（缺省 main），模式默认 gatekeeper。"""
     repo = _init_repo(tmp_path)
     _commit(repo, "c1", "a.txt", "base-content\n")
     _git(repo, "checkout", "-b", "feature")
     _commit(repo, "feat: A", "f1.txt", "feature-marker\n")
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(provider, "check", "--repo", str(repo), "--json")
     assert code == 0
     report = json.loads(out)
@@ -114,7 +114,7 @@ def test_check_without_ref_uses_config_base(run_cli, findings_json, tmp_path) ->
 
 
 def test_check_base_ref_from_config_file(
-    monkeypatch, run_cli, findings_json, tmp_path
+    monkeypatch, run_cli, panel, tmp_path
 ) -> None:
     """config.base 覆盖缺省 main：.reviewer.yaml base: develop，基线取 develop。"""
     repo = _init_repo(tmp_path)
@@ -131,7 +131,7 @@ def test_check_base_ref_from_config_file(
     cfg_dir.mkdir()
     (cfg_dir / ".reviewer.yaml").write_text("base: develop\n", encoding="utf-8")
     monkeypatch.chdir(cfg_dir)
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(provider, "check", "--repo", str(repo), "--json")
     assert code == 0
     report = json.loads(out)
@@ -143,13 +143,13 @@ def test_check_base_ref_from_config_file(
     assert "main-change" not in prompt  # 用错 main 会带进 develop/main 的分叉改动
 
 
-def test_check_explicit_ref(run_cli, findings_json, tmp_path) -> None:
+def test_check_explicit_ref(run_cli, panel, tmp_path) -> None:
     """check <ref> 显式给基线引用（压过 config.base）。"""
     repo = _init_repo(tmp_path)
     _commit(repo, "c1", "a.txt", "base\n")
     _git(repo, "checkout", "-b", "topic")
     _commit(repo, "t1", "t.txt", "topic-marker\n")
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(provider, "check", "main", "--repo", str(repo), "--json")
     assert code == 0
     report = json.loads(out)
@@ -158,7 +158,7 @@ def test_check_explicit_ref(run_cli, findings_json, tmp_path) -> None:
     assert "topic-marker" in provider.calls[0][1]
 
 
-def test_check_merge_base_diverged_history(run_cli, findings_json, tmp_path) -> None:
+def test_check_merge_base_diverged_history(run_cli, panel, tmp_path) -> None:
     """merge-base 正确性（分叉历史）：只审本分支提交，基线分支的新提交不进 diff。"""
     repo = _init_repo(tmp_path)
     _commit(repo, "c1", "a.txt", "base\n")
@@ -168,7 +168,7 @@ def test_check_merge_base_diverged_history(run_cli, findings_json, tmp_path) -> 
     _git(repo, "checkout", "main")
     _commit(repo, "main 独立提交", "m.txt", "main-only\n")
     _git(repo, "checkout", "feature")
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(provider, "check", "main", "--repo", str(repo), "--json")
     assert code == 0
     report = json.loads(out)
@@ -179,7 +179,7 @@ def test_check_merge_base_diverged_history(run_cli, findings_json, tmp_path) -> 
     assert "main-only" not in prompt  # merge-base 而非 ref 尖端：main 的新提交被排除
 
 
-def test_check_bad_ref_exit_64(run_cli, findings_json, tmp_path) -> None:
+def test_check_bad_ref_exit_64(run_cli, panel, tmp_path) -> None:
     """check 指向不存在的 ref → 64 + 可读错误。"""
     repo = _init_repo(tmp_path)
     _commit(repo, "c1", "a.txt", "base\n")
@@ -194,14 +194,14 @@ def test_check_bad_ref_exit_64(run_cli, findings_json, tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_check_description_auto_assembles_two_commits(run_cli, findings_json, tmp_path) -> None:
+def test_check_description_auto_assembles_two_commits(run_cli, panel, tmp_path) -> None:
     """描述缺省自动拼接 merge-base..HEAD 的提交信息（subject + body），来源=commits。"""
     repo = _init_repo(tmp_path)
     _commit(repo, "c1", "a.txt", "base\n")
     _git(repo, "checkout", "-b", "feature")
     _commit(repo, "feat: 添加导出\n\n详细 body 第一段", "f1.txt", "one\n")
     _commit(repo, "fix: 修正拼写", "f2.txt", "two\n")
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(provider, "check", "--repo", str(repo), "--json")
     assert code == 0
     prompt = provider.calls[0][1]
@@ -212,13 +212,13 @@ def test_check_description_auto_assembles_two_commits(run_cli, findings_json, tm
     assert report["metadata"]["description_source"] == "commits"
 
 
-def test_explicit_description_marks_source_explicit(run_cli, findings_json, tmp_path) -> None:
+def test_explicit_description_marks_source_explicit(run_cli, panel, tmp_path) -> None:
     """--description 显式给出 → description_source=explicit，且压过提交信息拼接。"""
     repo = _init_repo(tmp_path)
     _commit(repo, "c1", "a.txt", "base\n")
     _git(repo, "checkout", "-b", "feature")
     _commit(repo, "feat: A", "f1.txt", "one\n")
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(
         provider, "check", "--repo", str(repo), "--description", "自定义意图描述", "--json"
     )
@@ -230,7 +230,7 @@ def test_explicit_description_marks_source_explicit(run_cli, findings_json, tmp_
     assert report["metadata"]["description_source"] == "explicit"
 
 
-def test_description_file_marks_source_explicit(run_cli, findings_json, tmp_path) -> None:
+def test_description_file_marks_source_explicit(run_cli, panel, tmp_path) -> None:
     """--description-file 读 UTF-8 文件为描述（来源 explicit）。"""
     repo = _init_repo(tmp_path)
     _commit(repo, "c1", "a.txt", "base\n")
@@ -238,7 +238,7 @@ def test_description_file_marks_source_explicit(run_cli, findings_json, tmp_path
     _commit(repo, "feat: A", "f1.txt", "one\n")
     desc_file = tmp_path / "desc.md"
     desc_file.write_text("文件里的意图", encoding="utf-8")
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(
         provider, "check", "--repo", str(repo), "--description-file", str(desc_file), "--json"
     )
@@ -333,9 +333,9 @@ def test_empty_diff_check_json_report(run_cli, tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_replay_description_source_metadata(run_cli, diff_file, findings_json) -> None:
+def test_replay_description_source_metadata(run_cli, diff_file, panel) -> None:
     """回放模式无 --description → description_source=none；base/head 仍无 git 语义。"""
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, _ = run_cli(provider, "precheck", "--diff-file", str(diff_file), "--json")
     assert code == 0
     metadata = json.loads(out)["metadata"]

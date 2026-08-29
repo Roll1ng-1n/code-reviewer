@@ -11,7 +11,6 @@ import json
 from pathlib import Path
 
 from reviewer.context import assemble_context
-from reviewer.model import ScriptedProvider
 
 # 依赖文件内容的标志性文本（断言进 prompt 用的唯一锚）
 HELPER_LANDMARK = "HELPER_LANDMARK_6271"
@@ -56,13 +55,13 @@ def _make_snapshot_repo(tmp_path: Path) -> Path:
 
 
 def test_neighborhood_deps_agents_md_description_enter_prompt(
-    run_cli, findings_json, tmp_path
+    run_cli, panel, tmp_path
 ) -> None:
     """四块上下文齐进 prompt：结构地图（含 AGENTS.md）+ diff + 描述 + 邻域依赖。"""
     repo = _make_snapshot_repo(tmp_path)
     diff = tmp_path / "change.diff"
     _write(diff, _calc_diff())
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(
         provider, "check", "--diff-file", str(diff), "--repo", str(repo),
         "--description", "修复加法行为", "--json",
@@ -91,13 +90,13 @@ def test_neighborhood_deps_agents_md_description_enter_prompt(
     assert stats["neighborhood_truncated"] is False
 
 
-def test_structure_map_tree_without_agents_md(run_cli, findings_json, tmp_path) -> None:
+def test_structure_map_tree_without_agents_md(run_cli, panel, tmp_path) -> None:
     """无 AGENTS.md → 结构地图仍有目录树；无 import / 无描述 → 空块整体省略。"""
     repo = tmp_path / "bare"
     _write(repo / "pkg" / "calc.py", "x = 1\n")
     diff = tmp_path / "change.diff"
     _write(diff, _calc_diff())
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(
         provider, "check", "--diff-file", str(diff), "--repo", str(repo), "--json"
     )
@@ -113,7 +112,7 @@ def test_structure_map_tree_without_agents_md(run_cli, findings_json, tmp_path) 
     assert stats["neighborhood_tokens"] == 0
 
 
-def test_structure_map_truncation_flag(run_cli, findings_json, tmp_path) -> None:
+def test_structure_map_truncation_flag(run_cli, panel, tmp_path) -> None:
     """>500 行目录树 → 截断尾注进 prompt + structure_map_truncated 标志。"""
     repo = tmp_path / "big"
     repo.mkdir()
@@ -121,7 +120,7 @@ def test_structure_map_truncation_flag(run_cli, findings_json, tmp_path) -> None
         (repo / f"d{i:03d}").mkdir()
     diff = tmp_path / "change.diff"
     _write(diff, "--- a/x.txt\n+++ b/x.txt\n@@\n-a\n+a\n")  # 非 .py：邻域不触发
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(
         provider, "check", "--diff-file", str(diff), "--repo", str(repo), "--json"
     )
@@ -134,14 +133,14 @@ def test_structure_map_truncation_flag(run_cli, findings_json, tmp_path) -> None
     assert stats["neighborhood_files"] == 0
 
 
-def test_neighborhood_budget_truncation(run_cli, findings_json, tmp_path) -> None:
+def test_neighborhood_budget_truncation(run_cli, panel, tmp_path) -> None:
     """依赖文件超 2000 token 预算 → 截断塞满 + [budget truncated] 尾注 + 标志。"""
     repo = tmp_path / "snap"
     _write(repo / "pkg" / "calc.py", "from pkg.helper import compute\n")
     _write(repo / "pkg" / "helper.py", "x = 'pad'  # " + "A" * 10000 + "\n")
     diff = tmp_path / "change.diff"
     _write(diff, _calc_diff())
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, provider = run_cli(
         provider, "check", "--diff-file", str(diff), "--repo", str(repo), "--json"
     )
@@ -155,14 +154,14 @@ def test_neighborhood_budget_truncation(run_cli, findings_json, tmp_path) -> Non
 
 
 def test_neighborhood_empty_when_files_not_in_snapshot(
-    run_cli, findings_json, tmp_path
+    run_cli, panel, tmp_path
 ) -> None:
     """被改文件不在快照仓库（纯回放常见）→ 邻域为空、计数 0、不致命。"""
     empty_repo = tmp_path / "no-py"
     empty_repo.mkdir()
     diff = tmp_path / "change.diff"
     _write(diff, _calc_diff())
-    provider = ScriptedProvider([findings_json([])])
+    provider = panel()
     code, out, err, _ = run_cli(
         provider, "check", "--diff-file", str(diff), "--repo", str(empty_repo), "--json"
     )

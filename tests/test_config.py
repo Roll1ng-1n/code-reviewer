@@ -18,7 +18,7 @@ from reviewer.config import (
     ModelConfig,
     load_config,
 )
-from reviewer.model import DeepSeekProvider, ScriptedProvider, make_provider
+from reviewer.model import DeepSeekProvider, make_provider
 
 # 全量合法配置样例（覆盖全部配置节）
 FULL_CONFIG = """\
@@ -194,12 +194,12 @@ class TestCliConfigWiring:
     """CLI 缝层：配置文件层压过内置缺省、错误路径退出码。"""
 
     def test_config_file_reaches_provider_seam(
-        self, run_cli, monkeypatch, tmp_path, diff_file, findings_json
+        self, run_cli, monkeypatch, tmp_path, diff_file, panel
     ) -> None:
         """yaml 的 model.name / base 送达 make_provider（配置文件层 > 内置缺省层）。"""
         _write_config(tmp_path, "base: trunk\nmodel:\n  name: cfg-chat\n")
         monkeypatch.chdir(tmp_path)
-        provider = ScriptedProvider([findings_json([])])
+        provider = panel()
         code, _, _, _ = run_cli(provider, "check", "--diff-file", str(diff_file))
         assert code == 0
         config = run_cli.configs[-1]
@@ -208,11 +208,11 @@ class TestCliConfigWiring:
         assert config.source == tmp_path / CONFIG_FILE_NAME
 
     def test_builtin_defaults_without_config_file(
-        self, run_cli, monkeypatch, tmp_path, diff_file, findings_json
+        self, run_cli, monkeypatch, tmp_path, diff_file, panel
     ) -> None:
         """无配置文件 → make_provider 收到全内置缺省 Config。"""
         monkeypatch.chdir(tmp_path)
-        provider = ScriptedProvider([findings_json([])])
+        provider = panel()
         code, _, _, _ = run_cli(provider, "check", "--diff-file", str(diff_file))
         assert code == 0
         config = run_cli.configs[-1]
@@ -264,12 +264,12 @@ class TestModeResolutionChain:
     """mode 四层优先级在 CLI 缝上的两个关键用例。"""
 
     def test_subcommand_default_beats_config_mode(
-        self, run_cli, monkeypatch, tmp_path, diff_file, findings_json
+        self, run_cli, monkeypatch, tmp_path, diff_file, panel
     ) -> None:
         """子命令默认压过 config.mode：配置写 mentor，check 仍 gatekeeper。"""
         _write_config(tmp_path, "mode: mentor\n")
         monkeypatch.chdir(tmp_path)
-        provider = ScriptedProvider([findings_json([])])
+        provider = panel()
         code, out, _, _ = run_cli(
             provider, "check", "--diff-file", str(diff_file), "--json"
         )
@@ -277,12 +277,12 @@ class TestModeResolutionChain:
         assert json.loads(out)["mode"] == "gatekeeper"
 
     def test_explicit_mode_beats_everything(
-        self, run_cli, monkeypatch, tmp_path, diff_file, findings_json
+        self, run_cli, monkeypatch, tmp_path, diff_file, panel
     ) -> None:
         """--mode 压过一切：配置写 gatekeeper，--mode mentor 仍生效。"""
         _write_config(tmp_path, "mode: gatekeeper\n")
         monkeypatch.chdir(tmp_path)
-        provider = ScriptedProvider([findings_json([])])
+        provider = panel()
         code, out, _, _ = run_cli(
             provider,
             "precheck",

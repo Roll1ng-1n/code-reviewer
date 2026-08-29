@@ -6,9 +6,10 @@
   （``repo_root`` 由 #16 接线：被审仓库根路径，#17 结构地图 / spec KB 相对路径消费）
 - ``structure_map`` / ``neighborhood`` / ``context_stats``：仅 context-assembly 写
   （#17 上下文组装产物；context_stats 由 CLI 层并入 metadata）
-- ``enabled_experts``：仅 router 写（覆盖）
+- ``enabled_experts``：仅 router 写（覆盖；#18 起由 config.experts.enabled 过滤而来）
 - ``expert_findings``：仅专家节点写，``operator.add`` reducer —— 并行 fan-in 的关键；
   忘写 reducer 时默认覆盖语义会让最后完成的专家静默清掉其他专家的 findings
+  （#18 四专家 Send fan-out 并行 superstep 各写各的增量，只追加不覆盖）
 - ``findings``：仅 aggregate 写（整体替换，单 superstep 单写者）——官方建议的
   「用带排序信息的独立字段落位」写法，聚合输出顺序确定
 - ``summary``：仅 verdict 写（覆盖）
