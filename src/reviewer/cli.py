@@ -5,6 +5,10 @@
 argparse 默认 error() 退出码 2 会与 concerns 撞码，故自定义 Parser.error → 64。
 配置分层（#15）：启动早期加载 cwd 的 .reviewer.yaml（非法 → 64）；mode 四层优先级
 （--mode 显式 > 子命令默认 > config.mode > 内置缺省）见 _resolve_mode。
+真实 git 输入（#16）：precheck/check 缺省自调 git 产出 diff（--diff-file 回放可覆盖）；
+check 基线 = merge-base HEAD <ref 缺省 config.base>；描述来源 = 显式参数
+（--description / --description-file，二选一）> 提交信息自动拼接（metadata
+.description_source 标注）> 无；非 git 目录 → 64。
 """
 
 from __future__ import annotations
@@ -25,6 +29,7 @@ from .contract import (
     SCHEMA_VERSION,
     exit_code_for,
 )
+from .gitinput import GitInputError, collect_check_diff, collect_precheck_diff
 from .graph import build_review_graph
 from .model import make_provider
 from .render import render_human
@@ -44,9 +49,24 @@ class _ArgumentParser(argparse.ArgumentParser):
 
 
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
-    parser.add_argument("--diff-file", type=Path, help="回放模式：从固定 diff 文件读入（评估地基）")
-    parser.add_argument("--repo", type=Path, default=Path("."), help="仓库路径（元数据用）")
-    parser.add_argument("--description", default="", help="PR 描述/意图文本（logic 专家的意图上下文）")
+    parser.add_argument(
+        "--diff-file", type=Path,
+        help="回放模式：从固定 diff 文件读入（评估地基）；缺省走真实 git 输入",
+    )
+    parser.add_argument(
+        "--repo", type=Path, default=Path("."),
+        help="被审仓库路径（须存在）：git 模式 = 在此仓库取 diff；"
+             "回放模式 = 被审代码的快照仓库（供上下文组装，#17 消费）",
+    )
+    parser.add_argument(
+        "--description",
+        help="PR 描述/意图文本（与 --description-file 二选一，同给 → 64；"
+             "缺省自动拼接提交信息，来源见 metadata.description_source）",
+    )
+    parser.add_argument(
+        "--description-file", type=Path,
+        help="从 UTF-8 文件读 PR 描述/意图文本（与 --description 二选一）",
+    )
     parser.add_argument("--mode", choices=("mentor", "gatekeeper"), help="覆盖子命令默认模式")
     parser.add_argument("--json", dest="as_json", action="store_true", help="输出完整 Report JSON（schema-v1）")
 
@@ -58,6 +78,11 @@ def _build_parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="command", required=True)
 
     check = sub.add_parser("check", help="守门审查：对分支/引用出判决式报告（默认 gatekeeper）")
+    check.add_argument(
+        "ref", nargs="?", default=None,
+        help="基线引用（分支/tag/commit）；缺省用配置 base（缺省 main）——"
+             "diff 基线取 merge-base HEAD <ref>。--diff-file 回放模式下忽略",
+    )
     _add_common_args(check)
 
     precheck = sub.add_parser("precheck", help="提交前预检：导师式报告（默认 mentor）")
@@ -88,14 +113,61 @@ def _resolve_mode(
     return BUILTIN_DEFAULT_MODE
 
 
+def _metadata(
+    *,
+    repo: Path,
+    base_ref: str | None,
+    head_ref: str | None,
+    model: str,
+    duration_ms: int,
+    description_source: str,
+    no_changes: bool,
+) -> dict:
+    """Report metadata（#16 起 additive 开放键，schema_version 不升，见 contract.py 注释）。
+
+    恒含 ``description_source``（"explicit" | "commits" | "none"）；空 diff 短路
+    报告额外携带 ``no_changes: true``（机器可区分「审过无发现」与「无可审」）。
+    """
+    meta: dict = {
+        "repo": repo.resolve().name,
+        "base_ref": base_ref,  # git 模式 = diff 实际基线（check 为 merge-base SHA）；回放无 git 语义 → None
+        "head_ref": head_ref,  # 目前恒 "HEAD"（precheck 的改动在工作区）；回放 → None
+        "model": model,
+        "spec_kb": {"loaded": False, "documents": 0, "hash": None},  # #19 接入
+        "duration_ms": duration_ms,
+        "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "description_source": description_source,  # 描述来源标注（#16）
+    }
+    if no_changes:
+        meta["no_changes"] = True
+    return meta
+
+
 def _run_review(
-    *, diff: str, mode: str, description: str, repo: Path, config: Config
+    *,
+    diff: str,
+    mode: str,
+    description: str,
+    description_source: str,
+    repo: Path,
+    config: Config,
+    base_ref: str | None,
+    head_ref: str | None,
 ) -> dict:
     provider = make_provider(config)
     graph = build_review_graph(provider)
     start = time.monotonic()
     try:
-        final = graph.invoke({"diff": diff, "mode": mode, "description": description})
+        final = graph.invoke(
+            {
+                "diff": diff,
+                "mode": mode,
+                "description": description,
+                # #16 接线：被审仓库根路径进 state——#17（结构地图/import 邻域）
+                # 与未来 spec KB 相对路径解析从这里取
+                "repo_root": str(repo.resolve()),
+            }
+        )
     except Exception as exc:
         raise ReviewerError(f"评审运行失败：{exc}") from exc
     duration_ms = round((time.monotonic() - start) * 1000)
@@ -104,15 +176,46 @@ def _run_review(
         "mode": mode,
         "summary": final["summary"],
         "findings": final["findings"],
-        "metadata": {
-            "repo": repo.resolve().name,
-            "base_ref": None,  # 回放模式无 git 语义；真实 git 输入由 #16 接入后填
-            "head_ref": None,
-            "model": provider.model_name,
-            "spec_kb": {"loaded": False, "documents": 0, "hash": None},  # #19 接入
-            "duration_ms": duration_ms,
-            "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "metadata": _metadata(
+            repo=repo,
+            base_ref=base_ref,
+            head_ref=head_ref,
+            model=provider.model_name,
+            duration_ms=duration_ms,
+            description_source=description_source,
+            no_changes=False,
+        ),
+    }
+
+
+def _empty_changes_report(
+    *,
+    mode: str,
+    repo: Path,
+    description_source: str,
+    base_ref: str | None,
+    head_ref: str | None,
+) -> dict:
+    """空 diff（无改动）短路：不进图、不调模型（也无需 API key），
+    直接产出 pass 空报告；人类可读渲染据此提示「无改动」（render 读 no_changes）。"""
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "mode": mode,
+        "summary": {
+            "verdict": "pass",
+            "headline": "无改动：没有可审查的 diff",
+            "counts": {"blocker": 0, "concern": 0, "nit": 0},
         },
+        "findings": [],
+        "metadata": _metadata(
+            repo=repo,
+            base_ref=base_ref,
+            head_ref=head_ref,
+            model="none",  # 短路零模型调用，不构造 provider
+            duration_ms=0,
+            description_source=description_source,
+            no_changes=True,
+        ),
     }
 
 
@@ -124,34 +227,96 @@ def _emit(report: dict, *, as_json: bool) -> None:
 
 
 def _cmd_check(args: argparse.Namespace, config: Config) -> int:
-    return _run_replay_command(args, config=config, default_mode="gatekeeper")
+    return _run_command(args, config=config, default_mode="gatekeeper")
 
 
 def _cmd_precheck(args: argparse.Namespace, config: Config) -> int:
-    return _run_replay_command(args, config=config, default_mode="mentor")
+    return _run_command(args, config=config, default_mode="mentor")
 
 
-def _run_replay_command(
-    args: argparse.Namespace, *, config: Config, default_mode: str
-) -> int:
+def _run_command(args: argparse.Namespace, *, config: Config, default_mode: str) -> int:
+    """check/precheck 共用入口：回放（--diff-file）优先，缺省走真实 git 输入（#16）。"""
     mode = _resolve_mode(
         explicit=args.mode, subcommand_default=default_mode, from_config=config.mode
     )
-    if args.diff_file is None:
+    # 描述显式来源二选一（#16）：同给 → 用法错误 64
+    if args.description is not None and args.description_file is not None:
         print(
-            f"reviewer: {args.command} 尚未接入真实 git 输入（实现 4/11）；"
-            "当前请用 --diff-file 回放模式",
+            "reviewer: --description 与 --description-file 二选一，不可同时给出",
             file=sys.stderr,
         )
-        return EXIT_UNAVAILABLE
-    try:
-        diff = args.diff_file.read_text(encoding="utf-8")
-    except OSError as exc:
-        print(f"reviewer: 无法读取 diff 文件：{exc}", file=sys.stderr)
         return EXIT_USAGE_ERROR
-    report = _run_review(
-        diff=diff, mode=mode, description=args.description, repo=args.repo, config=config
-    )
+    # --repo（两种模式一致校验）：指向被审仓库/快照仓库，路径必须存在 → 否则 64
+    if not args.repo.exists():
+        print(f"reviewer: 仓库路径不存在：{args.repo}", file=sys.stderr)
+        return EXIT_USAGE_ERROR
+
+    explicit_description: str | None = None
+    if args.description is not None:
+        explicit_description = args.description
+    elif args.description_file is not None:
+        try:
+            explicit_description = args.description_file.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(
+                f"reviewer: 无法读取描述文件 {args.description_file}：{exc}",
+                file=sys.stderr,
+            )
+            return EXIT_USAGE_ERROR
+
+    if args.diff_file is not None:
+        # ---- 回放模式（评估地基）：--repo 指向被审代码的快照仓库 ----
+        try:
+            diff = args.diff_file.read_text(encoding="utf-8")
+        except OSError as exc:
+            print(f"reviewer: 无法读取 diff 文件：{exc}", file=sys.stderr)
+            return EXIT_USAGE_ERROR
+        if explicit_description is not None:
+            description, description_source = explicit_description, "explicit"
+        else:
+            description, description_source = "", "none"
+        base_ref = head_ref = None  # 回放无 git 语义
+    else:
+        # ---- 真实 git 输入（#16）：采集失败（非 git 目录 / 引用不存在等
+        #      输入侧问题）统一 → 用法错误 64 ----
+        try:
+            if args.command == "precheck":
+                git_in = collect_precheck_diff(args.repo)
+            else:
+                git_in = collect_check_diff(args.repo, args.ref or config.base)
+        except GitInputError as exc:
+            print(f"reviewer: {exc}", file=sys.stderr)
+            return EXIT_USAGE_ERROR
+        diff = git_in.diff
+        if explicit_description is not None:
+            description, description_source = explicit_description, "explicit"
+        else:
+            # 缺省 best-effort：自动拼接 merge-base..HEAD 提交信息
+            # （precheck 恒空，决策见 gitinput 模块 docstring）
+            description = git_in.commits_text
+            description_source = "commits" if description else "none"
+        base_ref, head_ref = git_in.base_ref, git_in.head_ref
+
+    # 空 diff（git 无改动 / 回放空文件）→ 短路：pass 空报告，零模型调用
+    if not diff.strip():
+        report = _empty_changes_report(
+            mode=mode,
+            repo=args.repo,
+            description_source=description_source,
+            base_ref=base_ref,
+            head_ref=head_ref,
+        )
+    else:
+        report = _run_review(
+            diff=diff,
+            mode=mode,
+            description=description,
+            description_source=description_source,
+            repo=args.repo,
+            config=config,
+            base_ref=base_ref,
+            head_ref=head_ref,
+        )
     _emit(report, as_json=args.as_json)
     return exit_code_for(report["summary"]["verdict"])
 

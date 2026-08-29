@@ -56,11 +56,13 @@ def test_report_five_section_contract(run_cli, diff_file, findings_json, make_fi
     metadata = report["metadata"]
     assert set(metadata) == {
         "repo", "base_ref", "head_ref", "model", "spec_kb", "duration_ms", "timestamp",
+        "description_source",  # #16：描述来源标注（additive，不升 schema_version）
     }
     assert metadata["model"] == "scripted-fake"
     assert metadata["repo"] == diff_file.parent.name
     assert metadata["base_ref"] is None
     assert metadata["head_ref"] is None
+    assert metadata["description_source"] == "explicit"  # 上面显式传了 --description
     assert metadata["spec_kb"] == {"loaded": False, "documents": 0, "hash": None}
     assert isinstance(metadata["duration_ms"], int)
     assert "+00:00" in metadata["timestamp"]

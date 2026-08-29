@@ -30,5 +30,9 @@ def render_human(report: dict) -> str:
             lines.append(f"  fix: {finding['suggestion']}")
         lines.append("")
     if not report["findings"]:
-        lines.append("无发现。")
+        # 空 diff 短路报告（#16）携带 no_changes 元数据 → 提示「无改动」而非「无发现」
+        if report["metadata"].get("no_changes"):
+            lines.append("无改动：没有可审查的 diff。")
+        else:
+            lines.append("无发现。")
     return "\n".join(lines)

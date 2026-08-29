@@ -14,6 +14,10 @@ schema-v1 Report 契约（Spec #12；findings 契约定稿于 Wayfinder 票 #6�
     }
 
 行锚定 = 新侧文件行号；无 confidence 字段；``--json`` 输出完整契约。
+
+metadata 是开放映射（additive 演进，不升 schema_version）：#16 起恒含
+``description_source``（"explicit" | "commits" | "none"，描述来源标注），
+空 diff 短路报告额外含 ``no_changes: true``；消费方须容忍未知键。
 """
 
 from __future__ import annotations
@@ -36,7 +40,7 @@ EXIT_CODES: dict[Verdict, int] = {"pass": 0, "blocked": 1, "concerns": 2}
 
 # 非 verdict 退出码
 EXIT_USAGE_ERROR = 64  # 参数错误
-EXIT_UNAVAILABLE = 69  # 命令面存在但尚未实现（precheck 真实 git 输入 #16 / pr 预留）
+EXIT_UNAVAILABLE = 69  # 命令面存在但尚未实现（#16 后仅剩 pr 预留；precheck/check 已接真实 git 输入）
 EXIT_SOFTWARE = 70  # 运行时错误（模型调用失败、图执行失败）
 EXIT_INTERRUPTED = 130  # 中断
 

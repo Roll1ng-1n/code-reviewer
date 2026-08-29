@@ -50,17 +50,8 @@ def test_pr_command_exit_69(run_cli) -> None:
     assert "预留" in err
 
 
-def test_check_without_diff_file_exit_69(run_cli) -> None:
-    """check 无 --diff-file（真实 git 输入未接入）→ 69。"""
-    code, out, err, _ = run_cli(ScriptedProvider(), "check")
-    assert code == 69
-    assert "--diff-file" in err
-
-
-def test_precheck_without_diff_file_exit_69(run_cli) -> None:
-    """precheck 无 --diff-file → 69。"""
-    code, out, err, _ = run_cli(ScriptedProvider(), "precheck")
-    assert code == 69
+# 注：#16 起 check/precheck 缺省自调 git 产出 diff，不再有「未接入 → 69」路径；
+# 相应的 64 行为（非 git 目录 / 路径不存在等）见 test_git_input.py。
 
 
 def test_provider_failure_exit_70(run_cli, diff_file) -> None:
