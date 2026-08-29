@@ -57,14 +57,23 @@ def build_system_prompt(category: str, charter: str, *, sev_cap: str = "") -> st
 
 
 def user_prompt(
-    diff: str, description: str, structure_map: str = "", neighborhood: str = ""
+    diff: str,
+    description: str,
+    structure_map: str = "",
+    neighborhood: str = "",
+    spec_kb_text: str = "",
 ) -> str:
     """配方形态 user prompt（#17，语义同源 prototype/risk-p1/run.py 的 build_prompts）：
 
-    结构地图块 + diff 块 + 描述块 + 邻域块；无对应上下文时该块整体省略，
-    不留空标题（严重度锚点与输出契约在 system prompt，恒在）。
+    Spec KB 块（#19，spec 专家专属）+ 结构地图块 + diff 块 + 描述块 + 邻域块；
+    无对应上下文时该块整体省略，不留空标题（严重度锚点与输出契约在 system
+    prompt，恒在）。
     """
     parts: list[str] = []
+    if spec_kb_text.strip():
+        parts.append(
+            "## Spec KB（规范文档，引用格式「文档名 § 节名」）\n" + spec_kb_text.strip()
+        )
     if structure_map.strip():
         parts.append(f"## 仓库结构地图\n{structure_map.strip()}")
     parts.append(f"## 变更 diff（unified，行号为新侧）\n```diff\n{diff}\n```")
@@ -119,6 +128,7 @@ def make_expert(
                 state.get("description", ""),
                 state.get("structure_map", ""),  # #17：context-assembly 产出
                 state.get("neighborhood", ""),
+                state.get("spec_kb_text", ""),  # #19：仅 spec 专家经 Send 携带
             ),
         )
         findings: list[dict[str, Any]] = []

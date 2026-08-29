@@ -19,7 +19,10 @@ metadata 是开放映射（additive 演进，不升 schema_version）：#16 起�
 ``description_source``（"explicit" | "commits" | "none"，描述来源标注），
 空 diff 短路报告额外含 ``no_changes: true``；#17 起正常路径（非空 diff）
 额外含 ``context_stats``（上下文组装预算统计：结构地图行数/截断标志、
-邻域文件数/token 近似/截断标志等）；消费方须容忍未知键。
+邻域文件数/token 近似/截断标志等）；#18 起恒含 ``spec_kb`` 键，#19 起填充
+真实加载状态——三键 {loaded: bool, documents: int, hash: str|None}，
+hash = sha256(按路径排序内容拼接) 前 12 位（空库 None，loaded = documents>0）；
+消费方须容忍未知键。
 """
 
 from __future__ import annotations

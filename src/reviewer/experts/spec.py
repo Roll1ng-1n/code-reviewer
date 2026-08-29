@@ -1,8 +1,9 @@
-"""Spec 专家（规范一致性维度）。
+"""Spec 专家（规范一致性维度，#19 接线 Spec KB）。
 
-本票（#18）Spec KB 恒空：charter 含「无规范库→输出空数组」指令（与
-compare.py 的 spec 臂同源），router 在 enabled 列表时仍发送；KB 加载 /
-「KB 空不启用」规则 / hash 由 实现 7/11（#19）接线（router 留有钩子注释）。
+KB 非空时由 router 启用（KB 空 → spec 分支在图结构上不存在——「可留空」
+落图，Spec #12 user story 8：没有规范文档时跳过规范检查而不是编造规则）；
+KB 全文经 Send 的 ``spec_kb_text`` 注入 user prompt 的「Spec KB」块，charter
+指令按「文档名 § 节名」引用章节依据（ADR-0001 文档式存储的引用格式）。
 节点骨架见 ``experts/base.py``。
 """
 
@@ -15,7 +16,12 @@ from .base import make_expert
 
 CATEGORY = "spec"
 
-CHARTER = "对照成文规范逐条检查违规。本仓库无成文规范库，直接输出空数组。"
+CHARTER = (
+    "对照规范知识库（Spec KB）逐条检查违规。规范文档全文在用户消息的「Spec KB」块："
+    "每个文档以「### 文档：<文档名>」标界，章节为文档内「## <节名>」标题"
+    "（降级注入时章节直接标为「<文档名> § <节名>」）。发现违规时，rationale 必须"
+    "引用所违反的具体章节，格式为「文档名 § 节名」。"
+)
 
 
 def make_spec_expert(provider: ModelProvider) -> Callable[[dict], dict]:

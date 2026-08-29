@@ -7,7 +7,7 @@ mode 与子命令默认的合并由 CLI 层完成（cli._resolve_mode）。
 - 配置发现只看 cwd，不看 pyproject.toml 等 Python 工程标记（非 Python 仓库同样可用）；
 - 密钥永不进配置文件：只从 ``model.api_key_env`` 指定的环境变量读取（user story 17）；
 - ``base`` / ``spec_kb.paths`` / ``experts.enabled`` 本票只解析与暴露，
-  消费方分别是 #16（merge-base）与 #17 / #19。
+  消费方分别是 #16（merge-base）、#19（Spec KB 来源层）与 #18（router 过滤）。
 """
 
 from __future__ import annotations

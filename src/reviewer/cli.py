@@ -13,6 +13,10 @@ check 基线 = merge-base HEAD <ref 缺省 config.base>；描述来源 = 显式�
 经 metadata.context_stats 可观测（additive，不升 schema_version）。
 专家团拓扑（#18）：experts.enabled 送达 router（纯规则过滤），Send fan-out
 并行四专家，findings 经 operator.add reducer 汇合后聚合。
+Spec KB（#19）：--spec（可重复 / 逗号分隔）+ spec_kb.paths + 约定目录
+（repo/specs/、repo/.reviewer/specs/）三层合并加载（相对路径解析基准：回放 =
+--repo，git = cwd），metadata.spec_kb 三键 {loaded, documents, hash} 可观测
+（additive，contract.py 注释）；KB 空 → router 剔除 spec 专家（可留空落图）。
 """
 
 from __future__ import annotations
@@ -37,6 +41,7 @@ from .gitinput import GitInputError, collect_check_diff, collect_precheck_diff
 from .graph import build_review_graph
 from .model import make_provider
 from .render import render_human
+from .spec_kb import SpecSources
 
 
 class ReviewerError(RuntimeError):
@@ -72,6 +77,11 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
         help="从 UTF-8 文件读 PR 描述/意图文本（与 --description 二选一）",
     )
     parser.add_argument("--mode", choices=("mentor", "gatekeeper"), help="覆盖子命令默认模式")
+    parser.add_argument(
+        "--spec", action="append", metavar="PATH",
+        help="Spec KB 来源：规范文档或目录（目录递归收 *.md；可重复 / 逗号分隔；"
+             "优先级最高，压过 spec_kb.paths 与约定目录 specs/、.reviewer/specs/）",
+    )
     parser.add_argument("--json", dest="as_json", action="store_true", help="输出完整 Report JSON（schema-v1）")
 
 
@@ -127,19 +137,21 @@ def _metadata(
     description_source: str,
     no_changes: bool,
     context_stats: dict | None = None,
+    spec_kb: dict | None = None,
 ) -> dict:
     """Report metadata（#16 起 additive 开放键，schema_version 不升，见 contract.py 注释）。
 
     恒含 ``description_source``（"explicit" | "commits" | "none"）；空 diff 短路
     报告额外携带 ``no_changes: true``（机器可区分「审过无发现」与「无可审」）；
-    正常路径额外携带 ``context_stats``（#17 上下文预算统计，预算超限与降级可观测）。
+    正常路径额外携带 ``context_stats``（#17 上下文预算统计，预算超限与降级可观测）
+    与 ``spec_kb``（#19 三键 {loaded, documents, hash}，Spec KB 加载状态）。
     """
     meta: dict = {
         "repo": repo.resolve().name,
         "base_ref": base_ref,  # git 模式 = diff 实际基线（check 为 merge-base SHA）；回放无 git 语义 → None
         "head_ref": head_ref,  # 目前恒 "HEAD"（precheck 的改动在工作区）；回放 → None
         "model": model,
-        "spec_kb": {"loaded": False, "documents": 0, "hash": None},  # #19 接入
+        "spec_kb": spec_kb or {"loaded": False, "documents": 0, "hash": None},  # #19：空 diff 短路即空态
         "duration_ms": duration_ms,
         "timestamp": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         "description_source": description_source,  # 描述来源标注（#16）
@@ -161,10 +173,14 @@ def _run_review(
     config: Config,
     base_ref: str | None,
     head_ref: str | None,
+    spec_sources: SpecSources,
 ) -> dict:
     provider = make_provider(config)
     # #18 接线：experts.enabled 送达 router（纯规则过滤出运行时分支集合）
-    graph = build_review_graph(provider, experts_enabled=config.experts.enabled)
+    # #19 接线：spec 三层来源打包送达 spec-kb 节点（KB 空 → router 剔除 spec）
+    graph = build_review_graph(
+        provider, experts_enabled=config.experts.enabled, spec_sources=spec_sources
+    )
     start = time.monotonic()
     try:
         final = graph.invoke(
@@ -173,13 +189,16 @@ def _run_review(
                 "mode": mode,
                 "description": description,
                 # #16 接线：被审仓库根路径进 state——#17（结构地图/import 邻域）
-                # 与未来 spec KB 相对路径解析从这里取
+                # 与 #19（约定目录基准）从这里取
                 "repo_root": str(repo.resolve()),
             }
         )
     except Exception as exc:
         raise ReviewerError(f"评审运行失败：{exc}") from exc
     duration_ms = round((time.monotonic() - start) * 1000)
+    # #19：metadata.spec_kb 三键（additive，contract.py 注释）
+    kb_state = final.get("spec_kb") or {}
+    kb_documents = kb_state.get("documents") or []
     return {
         "schema_version": SCHEMA_VERSION,
         "mode": mode,
@@ -194,6 +213,11 @@ def _run_review(
             description_source=description_source,
             no_changes=False,
             context_stats=final.get("context_stats"),  # #17：上下文预算统计
+            spec_kb={
+                "loaded": bool(kb_documents),
+                "documents": len(kb_documents),
+                "hash": kb_state.get("hash"),
+            },
         ),
     }
 
@@ -261,6 +285,19 @@ def _run_command(args: argparse.Namespace, *, config: Config, default_mode: str)
         print(f"reviewer: 仓库路径不存在：{args.repo}", file=sys.stderr)
         return EXIT_USAGE_ERROR
 
+    # #19：spec 三层来源打包——--spec 可重复 / 逗号分隔展开为最高优先层，
+    # config.spec_kb.paths 次之，约定目录由 repo_root 在加载器内推导。
+    # 相对路径解析基准：回放 = 快照仓库（--repo），git = 进程 cwd（规格语义）。
+    spec_cli = [
+        path.strip() for raw in (args.spec or []) for path in raw.split(",") if path.strip()
+    ]
+    spec_base_dir = args.repo if args.diff_file is not None else Path.cwd()
+    spec_sources = SpecSources(
+        cli=spec_cli,
+        config=list(config.spec_kb.paths),
+        base_dir=str(spec_base_dir),
+    )
+
     explicit_description: str | None = None
     if args.description is not None:
         explicit_description = args.description
@@ -326,6 +363,7 @@ def _run_command(args: argparse.Namespace, *, config: Config, default_mode: str)
             config=config,
             base_ref=base_ref,
             head_ref=head_ref,
+            spec_sources=spec_sources,
         )
     _emit(report, as_json=args.as_json)
     return exit_code_for(report["summary"]["verdict"])
