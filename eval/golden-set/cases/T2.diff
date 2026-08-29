@@ -1,0 +1,179 @@
+diff --git a/.gitignore b/.gitignore
+index b154d3b5678..7cf97c0d082 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -77,6 +77,10 @@ __pypackages__/
+ # Environments
+ .env
+ .envrc
++*.crt
++*.key
++*.pem
++credentials.json
+ .venv
+ .venvs
+ env/
+@@ -98,6 +102,7 @@ dmypy.json
+ 
+ .vercel
+ .turbo
++node_modules/
+ .editorconfig
+ .scratch
+ .worktrees/
+diff --git a/libs/sdk-py/langgraph_sdk/__init__.py b/libs/sdk-py/langgraph_sdk/__init__.py
+index dbe4ffa45e0..d91ba52b597 100644
+--- a/libs/sdk-py/langgraph_sdk/__init__.py
++++ b/libs/sdk-py/langgraph_sdk/__init__.py
+@@ -1,8 +1,15 @@
+ from langgraph_sdk.auth import Auth
+ from langgraph_sdk.client import get_client, get_sync_client
+ from langgraph_sdk.encryption import Encryption
+-from langgraph_sdk.encryption.types import EncryptionContext
++from langgraph_sdk.encryption.types import DecryptResult, EncryptionContext
+ 
+ __version__ = "0.4.2"
+ 
+-__all__ = ["Auth", "Encryption", "EncryptionContext", "get_client", "get_sync_client"]
++__all__ = [
++    "Auth",
++    "DecryptResult",
++    "Encryption",
++    "EncryptionContext",
++    "get_client",
++    "get_sync_client",
++]
+diff --git a/libs/sdk-py/langgraph_sdk/encryption/__init__.py b/libs/sdk-py/langgraph_sdk/encryption/__init__.py
+index 79611de059d..54e269274d8 100644
+--- a/libs/sdk-py/langgraph_sdk/encryption/__init__.py
++++ b/libs/sdk-py/langgraph_sdk/encryption/__init__.py
+@@ -149,7 +149,9 @@ def blob(self, fn: types.BlobDecryptor) -> types.BlobDecryptor:
+         Example:
+             ```python
+             @encryption.decrypt.blob
+-            async def decrypt_blob(ctx: EncryptionContext, blob: bytes) -> bytes:
++            async def decrypt_blob(
++                ctx: EncryptionContext, blob: bytes
++            ) -> bytes | DecryptResult[bytes]:
+                 # Decrypt the blob using your encryption service
+                 return decrypted_blob
+             ```
+@@ -176,7 +178,9 @@ def json(self, fn: types.JsonDecryptor) -> types.JsonDecryptor:
+         Example:
+             ```python
+             @encryption.decrypt.json
+-            async def decrypt_json(ctx: EncryptionContext, data: dict) -> dict:
++            async def decrypt_json(
++                ctx: EncryptionContext, data: dict
++            ) -> dict | DecryptResult[dict]:
+                 # Decrypt the data
+                 return decrypt_data(data)
+             ```
+@@ -369,7 +373,7 @@ async def decrypt_json(ctx: EncryptionContext, data: dict) -> dict:
+     """Reference to encryption type definitions.
+ 
+     Provides access to all type definitions used in the encryption system,
+-    including EncryptionContext, BlobEncryptor, BlobDecryptor,
++    including EncryptionContext, DecryptResult, BlobEncryptor, BlobDecryptor,
+     JsonEncryptor, and JsonDecryptor.
+     """
+ 
+diff --git a/libs/sdk-py/langgraph_sdk/encryption/types.py b/libs/sdk-py/langgraph_sdk/encryption/types.py
+index 92e65a8c60f..fca78fa8ec1 100644
+--- a/libs/sdk-py/langgraph_sdk/encryption/types.py
++++ b/libs/sdk-py/langgraph_sdk/encryption/types.py
+@@ -9,10 +9,30 @@
+ 
+ import typing
+ from collections.abc import Awaitable, Callable
++from dataclasses import dataclass
+ 
+ Json = dict[str, typing.Any]
+ """JSON-serializable dictionary type for structured data encryption."""
+ 
++T = typing.TypeVar("T")
++
++
++@dataclass(frozen=True, slots=True)
++class DecryptResult(typing.Generic[T]):
++    """Decrypted data and optional replacement ciphertext.
++
++    Return this from a decrypt handler when encrypted data should be replaced,
++    such as after rotating its encryption key. Returning plaintext directly
++    remains supported when no replacement is needed.
++
++    Attributes:
++        plaintext: Decrypted data returned to the caller
++        replacement: New encrypted data to persist in place of the input
++    """
++
++    plaintext: T
++    replacement: T | None = None
++
+ 
+ class EncryptionContext:
+     """Context passed to encryption/decryption handlers.
+@@ -57,7 +77,9 @@ def __repr__(self) -> str:
+     Awaitable that resolves to encrypted bytes
+ """
+ 
+-BlobDecryptor = Callable[[EncryptionContext, bytes], Awaitable[bytes]]
++BlobDecryptor = Callable[
++    [EncryptionContext, bytes], Awaitable[bytes | DecryptResult[bytes]]
++]
+ """Handler for decrypting opaque blob data like checkpoints.
+ 
+ Note: Must be an async function. Decryption typically involves I/O operations
+@@ -68,7 +90,8 @@ def __repr__(self) -> str:
+     blob: The encrypted bytes to decrypt
+ 
+ Returns:
+-    Awaitable that resolves to decrypted bytes
++    Awaitable that resolves to decrypted bytes, or a DecryptResult containing
++    decrypted bytes and replacement ciphertext
+ """
+ 
+ JsonEncryptor = Callable[[EncryptionContext, Json], Awaitable[Json]]
+@@ -101,7 +124,9 @@ def __repr__(self) -> str:
+     Awaitable that resolves to encrypted JSON dictionary
+ """
+ 
+-JsonDecryptor = Callable[[EncryptionContext, Json], Awaitable[Json]]
++JsonDecryptor = Callable[
++    [EncryptionContext, Json], Awaitable[Json | DecryptResult[Json]]
++]
+ """Handler for decrypting structured JSON data.
+ 
+ Note: Must be an async function. Decryption typically involves I/O operations
+@@ -115,7 +140,8 @@ def __repr__(self) -> str:
+     data: The encrypted JSON dictionary
+ 
+ Returns:
+-    Awaitable that resolves to decrypted JSON dictionary
++    Awaitable that resolves to a decrypted JSON dictionary, or a DecryptResult
++    containing decrypted JSON and replacement ciphertext
+ """
+ 
+ if typing.TYPE_CHECKING:
+diff --git a/libs/sdk-py/tests/test_encryption.py b/libs/sdk-py/tests/test_encryption.py
+index 90804c2a195..1d4cd8e54af 100644
+--- a/libs/sdk-py/tests/test_encryption.py
++++ b/libs/sdk-py/tests/test_encryption.py
+@@ -1,8 +1,17 @@
+ import pytest
+ 
++from langgraph_sdk import DecryptResult
+ from langgraph_sdk.encryption import DuplicateHandlerError, Encryption
+ 
+ 
++def test_decrypt_result():
++    result = DecryptResult(plaintext=b"plain", replacement=b"rotated")
++
++    assert result.plaintext == b"plain"
++    assert result.replacement == b"rotated"
++    assert DecryptResult(plaintext={"plain": True}).replacement is None
++
++
+ class TestHandlerValidation:
+     """Test duplicate handler and signature validation."""
+ 

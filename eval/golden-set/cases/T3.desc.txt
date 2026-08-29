@@ -1,0 +1,16 @@
+chore: Drop more deprecated stuff
+
+Changes:
+- remove deprecated `max_spans` option of `LangchainIntegration`
+- remove deprecated `sentry_sdk.init()` context manager
+- remove deprecated `configure_debug_hub`
+- remove deprecated `Baggage.from_options()`
+- remove deprecated `Transport.capture_event()`
+- remove deprecated `FunctionTransport`
+- the `Scope.trace_propagation_meta` function no longer accepts a `span` as argument
+- remove deprecated direct assignment to `Scope.level`
+- remove deprecated direct assignment to `Scope.user`
+- remove deprecated `Scope.iter_headers`
+
+Closes https://linear.app/getsentry/issue/PY-1935/drop-deprecated-stuff
+

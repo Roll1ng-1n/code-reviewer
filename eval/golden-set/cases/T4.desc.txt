@@ -1,0 +1,21 @@
+Clickhouse: support CONSTRAINT ... CHECK/ASSUME table constraints
+
+### Brief summary of the change made
+fixes #8387 
+Adds support for table constraints to the Clickhouse dialect. Previously valid Clickhouse CREATE TABLE statements would generate parsing violations. E.g. the following query would fail to parse:
+```SQL
+CREATE TABLE my_table
+(
+    name1 String,
+    CONSTRAINT constraint_name_1 ASSUME (name1 = 'test')
+)
+ENGINE = MergeTree;
+```
+
+An existing Clickhouse create table statement with a table constraint in the fixture file parses but would incorrectly classify the constraint as a column. This change fixes the parsing logic so that the constraint is correctly classified.
+
+### Verification
+After making the change, the old test case correctly parses the constraint syntax. Diff between old and new parses:
+```diff
+24,25c24,25
+< [L:  4, 

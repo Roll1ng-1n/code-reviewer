@@ -1,0 +1,226 @@
+diff --git a/docs/edge/ar/telemetry.mdx b/docs/edge/ar/telemetry.mdx
+index 466a949b39..670fbb926d 100644
+--- a/docs/edge/ar/telemetry.mdx
++++ b/docs/edge/ar/telemetry.mdx
+@@ -61,7 +61,7 @@ os.environ['OTEL_SDK_DISABLED'] = 'true'
+ | نعم       | سمات LLM | تشمل: الاسم، model_name، model، top_k، temperature، واسم فئة LLM. كلها بيانات تقنية غير شخصية. |
+ | نعم       | إنشاء مشروع باستخدام CLI الخاص بـ CrewAI | تشمل: أن مشروعًا جديدًا أُنشئ عبر `crewai create`، ونوعه (`crew` أو `json_crew` أو `flow`)، ومعرّف المشروع الذي تم توليده لهذا المشروع الجديد وكُتب في ملف `pyproject.toml` الخاص به. وهو معرّف المشروع الجديد نفسه، ويُسجَّل بشكل منفصل عن `project_id` الخاص بالمجلد الذي شُغّل منه الأمر — وقد يختلفان. لا اسم مشروع، ولا محتويات ملفات، ولا شيفرة. لا بيانات شخصية. |
+ | نعم       | محاولة نشر الطاقم باستخدام CLI الخاص بـ CrewAI | تشمل: حقيقة إجراء النشر ومعرّف الطاقم، وما إذا كان يحاول سحب السجلات، وما إذا بدأ النشر من أمر CLI أو من واجهة التشغيل TUI. لا تُسجَّل محتويات المشروع أو الطاقم. لا توجد بيانات شخصية. |
+-| نعم       | بيئة التنفيذ | تشمل: مساعد البرمجة بالذكاء الاصطناعي الذي يشغّل العملية إن وُجد (واحد من قائمة ثابتة مثل `claude_code` أو `codex` أو `cursor` أو `unknown`)، ومكان تشغيل العملية (واحد من قائمة ثابتة مثل `ci` أو `container` أو `serverless` أو `interactive`)، و`project_id` من ملف `pyproject.toml` عند ضبطه. يتحقق الاكتشاف فقط مما إذا كانت متغيرات البيئة المعروفة مضبوطة، ولا يقرأ قيمها أبدًا. لا بيانات شخصية. |
++| نعم       | بيئة التنفيذ | تشمل: مساعد البرمجة بالذكاء الاصطناعي الذي يشغّل العملية إن وُجد (واحد من قائمة ثابتة مثل `claude_code` أو `codex` أو `cursor` أو `unknown`)، ومكان تشغيل العملية (واحد من قائمة ثابتة مثل `ci` أو `container` أو `serverless` أو `interactive`)، و`project_id` من ملف `pyproject.toml` عند ضبطه، ونطاقًا تقريبيًا لحجم الجهاز (واحد من `1-2` أو `3-4` أو `5-8` أو `9-16` أو `17-32` أو `33+` أو `unknown`). النطاق مجال وليس العدد الدقيق للأنوية أبدًا — العدد الدقيق اختياري فقط، ضمن «معلومات البيئة» أدناه. يتحقق الاكتشاف فقط مما إذا كانت متغيرات البيئة المعروفة مضبوطة، ولا يقرأ قيمها أبدًا. لا بيانات شخصية. |
+ | نعم       | إشارات دورة حياة التدفق | تشمل: بدء التدفق، وما إذا اكتمل أو فشل، وما إذا فشلت إحدى طرقه، وما إذا توقف مؤقتًا لانتظار إدخال أو ملاحظات بشرية، وما إذا كان البدء تشغيلًا مستأنفًا، وما إذا فشل دور محادثة، ومدة تشغيل التدفق، وما إذا كان التدفق مما تشغّله CrewAI داخليًا أو مما كتبته أنت. ويُسجَّل اسم التدفق، كما هو الحال بالفعل لإنشاء التدفق وتنفيذه. وعند فشل تدفق أو إحدى طرقه، يُسجَّل **اسم فئة** الاستثناء (مثل `TimeoutError`) لتشخيص الأعطال — ولا تُسجَّل أبدًا رسالة الخطأ، التي قد تحتوي على مطالبات أو مخرجات النموذج أو مسارات ملفات أو بيانات اعتماد. ولا تُسجَّل أبدًا أسماء الطرق أو حالة التدفق. لا توجد بيانات شخصية. |
+ | نعم       | إشارة مشاركة التتبع | تشمل: نجاح مشاركة دفعة من عمليات التتبع مع CrewAI AMP، وما إذا تمت المشاركة بشكل مجهول (قبل إنشاء حساب) أو مرتبطة بحسابك. ومثل كل span، تحمل أيضًا سمات بيئة التنفيذ الموضحة أعلاه (`project_id` عند تكوينه، ومساعد البرمجة، وبيئة التشغيل). يصف هذا الصف بيانات القياس عن بُعد الخاصة بالمشاركة فقط — وليس محتويات التتبع أو الوصول الذي تمنحه روابط التتبع المشتركة. لا تُسجَّل محتويات التتبع أو المدخلات أو المخرجات في هذه الإشارة. قبل مشاركة التتبعات، راجع الأسرار والبيانات الشخصية وإعدادات التنقيح والاحتفاظ في AMP. |
+ | لا        | بيانات الوكيل الموسّعة | تشمل: وصف الهدف، نص الخلفية، معرّف ملف موجهات i18n. يجب على المستخدمين التأكد من عدم تضمين معلومات شخصية في حقول النص. |
+diff --git a/docs/edge/en/telemetry.mdx b/docs/edge/en/telemetry.mdx
+index ea767c3324..5c054c88f9 100644
+--- a/docs/edge/en/telemetry.mdx
++++ b/docs/edge/en/telemetry.mdx
+@@ -61,7 +61,7 @@ own tracer provider, which is independent of the one described here.
+ | Yes       | LLM Attributes | Includes: name, model_name, model, top_k, temperature, and class name of the LLM. All technical, non-personal data. |
+ | Yes       | Project Creation using crewAI CLI | Includes: that a new project was scaffolded by `crewai create`, which kind it was (`crew`, `json_crew` or `flow`), and the project ID minted for that new project and written into its own `pyproject.toml`. That is the new project's own ID, recorded separately from the `project_id` of the directory the command was run from — the two can differ. No project name, no file contents, no code. No personal data. |
+ | Yes       | Crew Deployment attempt using crewAI CLI | Includes: The fact a deploy is being made and crew id, whether it's trying to pull logs, and whether the deploy was started from a CLI command or from the run TUI. No project or crew contents. No personal data. |
+-| Yes       | Execution Environment | Includes: which AI coding assistant is running the process, if any (one of a fixed list such as `claude_code`, `codex`, `cursor`, or `unknown`), where the process runs (one of a fixed list such as `ci`, `container`, `serverless`, `interactive`), and the `project_id` from your `pyproject.toml` when one is configured. Detection reads only whether known environment variables are set, never their values. No personal data. |
++| Yes       | Execution Environment | Includes: which AI coding assistant is running the process, if any (one of a fixed list such as `claude_code`, `codex`, `cursor`, or `unknown`), where the process runs (one of a fixed list such as `ci`, `container`, `serverless`, `interactive`), the `project_id` from your `pyproject.toml` when one is configured, and a coarse size band for the machine (one of `1-2`, `3-4`, `5-8`, `9-16`, `17-32`, `33+`, or `unknown`). The band is a range, never the exact core count — the exact count is opt-in only, under Environment Information below. Detection reads only whether known environment variables are set, never their values. No personal data. |
+ | Yes       | Flow Lifecycle Signals | Includes: that a flow started, whether it completed or failed, whether one of its methods failed, whether it paused for human input or feedback, whether the start was a resumed run, whether a conversation turn failed, how long the flow ran, and whether the flow is one CrewAI runs internally or one you wrote. The flow name is recorded, as it already is for flow creation and execution. When a flow or one of its methods fails, the **class name** of the exception is recorded (for example `TimeoutError`) so that failures can be diagnosed — never the error message, which can contain prompts, model output, file paths or credentials. Method names and flow state are never recorded. No personal data. |
+ | Yes       | Trace Sharing Signal | Includes: that a batch of traces was successfully shared with CrewAI AMP, and whether it was shared anonymously (before you have an account) or linked to your account. Like every span, it also carries the Execution Environment attributes described above (`project_id` when configured, the coding assistant, and the runtime). This row describes sharing telemetry only — not the trace contents or access granted by shared trace links. Trace contents, inputs, and outputs are never recorded on this signal. Before sharing traces, review secrets, personal data, and AMP redaction and retention settings. |
+ | No        | Agent's Expanded Data | Includes: goal description, backstory text, i18n prompt file identifier. Users should ensure no personal info is included in text fields. |
+diff --git a/docs/edge/ko/telemetry.mdx b/docs/edge/ko/telemetry.mdx
+index 04ccb8bfd6..3a627bf189 100644
+--- a/docs/edge/ko/telemetry.mdx
++++ b/docs/edge/ko/telemetry.mdx
+@@ -59,7 +59,7 @@ provider로 등록하지 않습니다. 이를 통해 양방향이 분리됩니
+ | 예      | LLM 속성                                  | LLM의 이름, model_name, 모델, top_k, temperature 및 클래스명이 포함됩니다. 모두 기술적이고 비개인 정보입니다. |
+ | 예      | crewAI CLI를 통한 프로젝트 생성 | 포함 항목: `crewai create`로 새 프로젝트가 생성되었다는 사실, 그 종류(`crew`, `json_crew` 또는 `flow`), 그리고 그 새 프로젝트에 발급되어 해당 프로젝트의 `pyproject.toml`에 기록된 프로젝트 ID. 이는 새 프로젝트 자체의 ID이며, 명령을 실행한 디렉터리의 `project_id`와는 별개로 기록됩니다 — 두 값은 다를 수 있습니다. 프로젝트 이름, 파일 내용, 코드는 기록되지 않습니다. 개인 정보 없음. |
+ | 예      | crewAI CLI를 통한 Crew 배포 시도 | 포함 항목: 배포가 시도되고 있다는 사실과 crew id, 로그를 가져오려고 하는지 여부, 그리고 배포가 CLI 명령에서 시작되었는지 실행 TUI에서 시작되었는지 여부. 프로젝트나 crew의 내용은 기록되지 않습니다. 개인 정보 없음. |
+-| 예      | 실행 환경                                  | 포함: 프로세스를 실행 중인 AI 코딩 어시스턴트(있는 경우, `claude_code`, `codex`, `cursor`, `unknown` 등 고정 목록 중 하나), 프로세스가 실행되는 위치(`ci`, `container`, `serverless`, `interactive` 등 고정 목록 중 하나), 그리고 `pyproject.toml`에 설정된 경우 `project_id`. 감지는 알려진 환경 변수의 설정 여부만 확인하며 값은 읽지 않음. 개인 데이터 없음. |
++| 예      | 실행 환경                                  | 포함: 프로세스를 실행 중인 AI 코딩 어시스턴트(있는 경우, `claude_code`, `codex`, `cursor`, `unknown` 등 고정 목록 중 하나), 프로세스가 실행되는 위치(`ci`, `container`, `serverless`, `interactive` 등 고정 목록 중 하나), `pyproject.toml`에 설정된 경우 `project_id`, 그리고 머신 크기의 대략적인 구간(`1-2`, `3-4`, `5-8`, `9-16`, `17-32`, `33+`, `unknown` 중 하나). 구간은 범위이며 정확한 코어 수는 절대 포함하지 않습니다 — 정확한 코어 수는 아래 환경 정보에서 옵트인한 경우에만 수집됩니다. 감지는 알려진 환경 변수의 설정 여부만 확인하며 값은 읽지 않음. 개인 데이터 없음. |
+ | 예      | Flow 라이프사이클 신호 | 포함 항목: flow의 시작, 완료 또는 실패 여부, 해당 메서드의 실패 여부, 사람의 입력이나 피드백을 위해 일시 중지되었는지 여부, 해당 시작이 재개된 실행이었는지 여부, 대화 턴의 실패 여부, flow 실행 시간, 그리고 해당 flow가 CrewAI가 내부적으로 실행하는 것인지 사용자가 작성한 것인지 여부. flow 이름은 flow 생성 및 실행에서와 마찬가지로 기록됩니다. flow 또는 해당 메서드가 실패하면 장애 진단을 위해 예외의 **클래스 이름**(예: `TimeoutError`)이 기록되며, 프롬프트·모델 출력·파일 경로·자격 증명이 포함될 수 있는 오류 메시지는 절대 기록되지 않습니다. 메서드 이름과 flow 상태는 절대 기록되지 않습니다. 개인 정보 없음. |
+ | 예      | 트레이스 공유 신호 | 포함 항목: 트레이스 배치가 CrewAI AMP에 성공적으로 공유되었는지 여부와, 익명으로(계정 생성 전) 공유되었는지 또는 계정에 연결되어 공유되었는지 여부. 모든 span과 마찬가지로 위에서 설명한 실행 환경 속성(구성된 경우 `project_id`, 코딩 어시스턴트, 런타임)도 함께 기록됩니다. 이 행은 공유 텔레메트리만 설명하며 — 트레이스 내용이나 공유된 트레이스 링크로 부여되는 접근 권한은 설명하지 않습니다. 트레이스 내용, 입력, 출력은 이 신호에는 기록되지 않습니다. 트레이스를 공유하기 전에 비밀 정보, 개인 데이터, AMP 편집 및 보존 설정을 검토하세요. |
+ | 아니오  | 에이전트 확장 데이터                      | 목표 설명, 배경 이야기 텍스트, i18n 프롬프트 파일 식별자가 포함됩니다. 사용자들은 텍스트 필드에 개인 정보가 포함되지 않도록 해야 합니다. |
+diff --git a/docs/edge/pt-BR/telemetry.mdx b/docs/edge/pt-BR/telemetry.mdx
+index 736fa800bc..6034c7d99b 100644
+--- a/docs/edge/pt-BR/telemetry.mdx
++++ b/docs/edge/pt-BR/telemetry.mdx
+@@ -61,7 +61,7 @@ por meio do próprio tracer provider, que é independente do descrito aqui.
+ | Sim    | Atributos do LLM                           | Inclui: nome, model_name, model, top_k, temperatura e nome da classe do LLM. Todos técnicos, sem dados pessoais.                  |
+ | Sim    | Criação de Projeto pelo CLI do crewAI | Inclui: o fato de um novo projeto ter sido criado por `crewai create`, de qual tipo ele é (`crew`, `json_crew` ou `flow`) e o ID de projeto gerado para esse novo projeto e gravado no `pyproject.toml` dele. É o ID do próprio projeto novo, registrado separadamente do `project_id` do diretório de onde o comando foi executado — os dois podem diferir. Sem nome de projeto, sem conteúdo de arquivos, sem código. Sem dados pessoais. |
+ | Sim    | Tentativa de Deploy do Crew pelo CLI do crewAI | Inclui: O fato de um deploy estar sendo realizado e o crew id, se está tentando buscar logs, e se o deploy foi iniciado por um comando do CLI ou pela TUI de execução. Não inclui conteúdo do projeto ou do crew nem dados pessoais. |
+-| Sim    | Ambiente de Execução                       | Inclui: qual assistente de código com IA está executando o processo, se houver (um de uma lista fixa como `claude_code`, `codex`, `cursor` ou `unknown`), onde o processo é executado (um de uma lista fixa como `ci`, `container`, `serverless`, `interactive`) e o `project_id` do seu `pyproject.toml` quando houver um configurado. A detecção lê apenas se variáveis de ambiente conhecidas estão definidas, nunca seus valores. Sem dados pessoais. |
++| Sim    | Ambiente de Execução                       | Inclui: qual assistente de código com IA está executando o processo, se houver (um de uma lista fixa como `claude_code`, `codex`, `cursor` ou `unknown`), onde o processo é executado (um de uma lista fixa como `ci`, `container`, `serverless`, `interactive`) o `project_id` do seu `pyproject.toml` quando houver um configurado e uma faixa aproximada de tamanho da máquina (uma de `1-2`, `3-4`, `5-8`, `9-16`, `17-32`, `33+` ou `unknown`). A faixa é um intervalo, nunca a contagem exata de núcleos — a contagem exata é opcional, em Informações de Ambiente abaixo. A detecção lê apenas se variáveis de ambiente conhecidas estão definidas, nunca seus valores. Sem dados pessoais. |
+ | Sim    | Sinais de Ciclo de Vida do Flow | Inclui: que um flow iniciou, se foi concluído ou falhou, se um de seus métodos falhou, se pausou para entrada ou feedback humano, se o início foi uma execução retomada, se um turno de conversa falhou, quanto tempo o flow executou, e se o flow é um que a CrewAI executa internamente ou um que você escreveu. O nome do flow é registrado, como já é para criação e execução de flow. Quando um flow ou um de seus métodos falha, o **nome da classe** da exceção é registrado (por exemplo `TimeoutError`) para permitir o diagnóstico de falhas — nunca a mensagem de erro, que pode conter prompts, saída do modelo, caminhos de arquivo ou credenciais. Nomes de métodos e estado do flow nunca são registrados. Nenhum dado pessoal. |
+ | Sim    | Sinal de Compartilhamento de Trace | Inclui: que um lote de traces foi compartilhado com sucesso com o CrewAI AMP, e se foi compartilhado anonimamente (antes de você ter uma conta) ou vinculado à sua conta. Como todo span, também carrega os atributos de Ambiente de Execução descritos acima (`project_id` quando configurado, o assistente de programação e o runtime). Esta linha descreve apenas a telemetria do compartilhamento — não o conteúdo dos traces nem o acesso concedido por links de traces compartilhados. O conteúdo dos traces, entradas e saídas nunca são registrados neste sinal. Antes de compartilhar traces, revise segredos, dados pessoais e as configurações de redação e retenção do AMP. |
+ | Não    | Dados Expandidos do Agente                 | Inclui: descrição do objetivo, texto da história, identificador de arquivo i18n prompt. Usuários devem garantir que não haja info pessoal nesses campos de texto.            |
+diff --git a/lib/crewai-core/src/crewai_core/runtime_env.py b/lib/crewai-core/src/crewai_core/runtime_env.py
+index eb1c7d7b74..de838e4a39 100644
+--- a/lib/crewai-core/src/crewai_core/runtime_env.py
++++ b/lib/crewai-core/src/crewai_core/runtime_env.py
+@@ -188,6 +188,23 @@
+     + ["interactive", "non_interactive", _UNKNOWN]
+ )
+ 
++# Core counts as coarse bands, never the exact number. Powers of two, top band
++# open-ended: the observed maximum in the fleet is 512, and a span reporting 512
++# identifies one machine.
++_CPU_BANDS: Final[tuple[tuple[int, str], ...]] = (
++    (2, "1-2"),
++    (4, "3-4"),
++    (8, "5-8"),
++    (16, "9-16"),
++    (32, "17-32"),
++)
++_CPU_BAND_ABOVE: Final[str] = "33+"
++
++# The same guarantee again for detect_cpu_band().
++KNOWN_CPU_BANDS: Final[frozenset[str]] = frozenset(
++    [band for _, band in _CPU_BANDS] + [_CPU_BAND_ABOVE, _UNKNOWN]
++)
++
+ 
+ def detect_coding_agent() -> str:
+     """Best-effort detection of the AI coding assistant running this process.
+@@ -266,3 +283,30 @@ def detect_runtime_context() -> str:
+         return "interactive" if sys.stdout.isatty() else "non_interactive"
+     except (AttributeError, ValueError, OSError):
+         return _UNKNOWN
++
++
++def detect_cpu_band() -> str:
++    """The machine's core count as a coarse band, never the exact number.
++
++    Answers "is this a server or someone's laptop", which ``runtime_context``
++    cannot: its largest bucket is a catch-all, and ``non_interactive`` is
++    returned identically by a gunicorn worker on a VM and by
++    ``python main.py > out.log`` on a MacBook. A band adds the capacity axis
++    without the fingerprint an exact count would carry.
++
++    **Reports HOST cores, not the cgroup quota.** A 1-vCPU pod on a 96-core node
++    lands in ``33+``. That is the right answer for "what kind of machine is this"
++    and the wrong one for "what resources did this run get" --
++    ``os.process_cpu_count()`` gives the latter but needs Python 3.13, above this
++    package's floor.
++
++    Returns:
++        One of ``KNOWN_CPU_BANDS``; ``"unknown"`` when the count is unavailable.
++    """
++    count = os.cpu_count()
++    if not count or count < 1:
++        return _UNKNOWN
++    for upper, band in _CPU_BANDS:
++        if count <= upper:
++            return band
++    return _CPU_BAND_ABOVE
+diff --git a/lib/crewai-core/src/crewai_core/telemetry.py b/lib/crewai-core/src/crewai_core/telemetry.py
+index d83e464dd1..071bad3777 100644
+--- a/lib/crewai-core/src/crewai_core/telemetry.py
++++ b/lib/crewai-core/src/crewai_core/telemetry.py
+@@ -32,7 +32,11 @@
+ from typing_extensions import Self
+ 
+ from crewai_core.project import get_project_id
+-from crewai_core.runtime_env import detect_coding_agent, detect_runtime_context
++from crewai_core.runtime_env import (
++    detect_coding_agent,
++    detect_cpu_band,
++    detect_runtime_context,
++)
+ 
+ 
+ logger = logging.getLogger(__name__)
+@@ -144,6 +148,7 @@ def common_span_attributes() -> dict[str, str]:
+     attributes = {
+         "coding_agent": detect_coding_agent(),
+         "runtime_context": detect_runtime_context(),
++        "cpu_band": detect_cpu_band(),
+     }
+ 
+     try:
+diff --git a/lib/crewai-core/tests/test_runtime_env.py b/lib/crewai-core/tests/test_runtime_env.py
+index 08cd547424..0d4f9298cc 100644
+--- a/lib/crewai-core/tests/test_runtime_env.py
++++ b/lib/crewai-core/tests/test_runtime_env.py
+@@ -18,8 +18,10 @@
+ from crewai_core.runtime_env import (
+     CODING_AGENT_ENV_MARKERS,
+     GENERIC_AGENT_ENV_VARS,
++    KNOWN_CPU_BANDS,
+     RUNTIME_CONTEXT_ENV_MARKERS,
+     detect_coding_agent,
++    detect_cpu_band,
+     detect_runtime_context,
+ )
+ from crewai_core.telemetry import Telemetry, common_span_attributes
+@@ -135,3 +137,74 @@ def test_cli_spans_carry_the_process_context(
+         assert attributes is not None
+         assert attributes["coding_agent"] == "claude_code"
+         assert attributes["runtime_context"] == "ci"
++
++
++class TestCpuBand:
++    """A coarse capacity signal: enough to tell a server from a laptop, no more."""
++
++    @pytest.mark.parametrize(
++        ("cores", "expected"),
++        [
++            (1, "1-2"),
++            (2, "1-2"),
++            (3, "3-4"),
++            (4, "3-4"),
++            (5, "5-8"),
++            (8, "5-8"),
++            (9, "9-16"),
++            (16, "9-16"),
++            (17, "17-32"),
++            (32, "17-32"),
++            (33, "33+"),
++            (96, "33+"),
++            (512, "33+"),
++        ],
++    )
++    def test_bands_are_inclusive_at_every_boundary(
++        self, cores: int, expected: str, monkeypatch: pytest.MonkeyPatch
++    ) -> None:
++        monkeypatch.setattr("crewai_core.runtime_env.os.cpu_count", lambda: cores)
++        assert detect_cpu_band() == expected
++
++    def test_the_largest_band_is_open_ended(
++        self, monkeypatch: pytest.MonkeyPatch
++    ) -> None:
++        """The exact count is the fingerprint: 512 cores identifies one machine.
++
++        The observed fleet maximum is 512, so the top band must absorb it rather
++        than the value reaching a span.
++        """
++        monkeypatch.setattr("crewai_core.runtime_env.os.cpu_count", lambda: 512)
++        band = detect_cpu_band()
++        assert band == "33+"
++        assert "512" not in band
++
++    @pytest.mark.parametrize("unavailable", [None, 0])
++    def test_an_unavailable_count_is_unknown_not_a_band(
++        self, unavailable: int | None, monkeypatch: pytest.MonkeyPatch
++    ) -> None:
++        """`os.cpu_count()` returns None when it cannot tell; that is not "1-2"."""
++        monkeypatch.setattr("crewai_core.runtime_env.os.cpu_count", lambda: unavailable)
++        assert detect_cpu_band() == "unknown"
++
++    def test_the_real_machine_lands_in_the_closed_vocabulary(self) -> None:
++        """Unmocked: whatever this host reports must still be a known literal."""
++        assert detect_cpu_band() in KNOWN_CPU_BANDS
++
++    def test_no_band_can_carry_a_precise_core_count(self) -> None:
++        """Every emittable value is a short opaque label, as for the sibling signals."""
++        for band in KNOWN_CPU_BANDS:
++            assert len(band) <= 32, band
++            assert band.replace("-", "").replace("+", "").replace("_", "").isalnum(), (
++                band
++            )
++
++    def test_it_rides_every_span_rather_than_only_crew_created(self) -> None:
++        """The gated `cpus` sits on Crew Created alone, which answers nothing for
++        Flow-only, CLI-only or standalone-agent runs. This one is a common
++        attribute, so it is on all of them."""
++        common_span_attributes.cache_clear()
++        try:
++            assert common_span_attributes()["cpu_band"] in KNOWN_CPU_BANDS
++        finally:
++            common_span_attributes.cache_clear()

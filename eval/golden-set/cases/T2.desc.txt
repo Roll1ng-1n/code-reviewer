@@ -1,0 +1,17 @@
+feat(sdk-py): add decrypt replacement result
+
+## Summary
+
+- add `DecryptResult` with plaintext and optional replacement ciphertext
+- keep raw decrypt return values backward compatible
+- export the result from `langgraph_sdk`
+
+## Merge order
+
+Independent of langgraph-api#3884. Merge and release this SDK change before LSD-1489 consumes the result in langgraph-api.
+
+## Test plan
+
+- `make format`
+- `make lint`
+- `make test`

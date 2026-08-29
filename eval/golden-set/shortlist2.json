@@ -1,0 +1,151 @@
+[
+  {
+    "repo": "langchain-ai/langgraph",
+    "number": 8617,
+    "url": "https://github.com/langchain-ai/langgraph/pull/8617",
+    "title": "fix(checkpoint): widen `Store` `put` value type to `Mapping[str, Any]`",
+    "additions": 35,
+    "deletions": 17,
+    "changed_files": 8,
+    "substantive": 3,
+    "fixes": [
+      "fix(checkpoint-postgres,checkpoint-sqlite): normalize Mapping values to dict before JSON serialization",
+      "Merge branch 'main' into fix/store-put-value-mapping",
+      "fix(checkpoint): normalize mappings for indexed text"
+    ],
+    "rep": "<!-- open-swe-review-comment {\"id\":\"f_5202641240\",\"file_path\":\"libs/checkpoint/langgraph/store/base/__init__.py\",\"start_line\":476,\"end_line\":479,\"side\":\"RIGHT\"} -->  🟡 **Non-dict mappings fail in pers",
+    "bug_hint": true,
+    "score": 13
+  },
+  {
+    "repo": "langflow-ai/langflow",
+    "number": 14832,
+    "url": "https://github.com/langflow-ai/langflow/pull/14832",
+    "title": "fix(frontend): fit the canvas once the whole graph is measured",
+    "additions": 671,
+    "deletions": 38,
+    "changed_files": 12,
+    "substantive": 4,
+    "fixes": [
+      "fix(frontend): fit only when a flow asks for it",
+      "Merge branch 'release-1.12.0' into fix/canvas-fit-view-unmeasured-nodes"
+    ],
+    "rep": "_📐 Maintainability & Code Quality_ | _🟡 Minor_ | _⚡ Quick win_  **Rename the test to describe its assertion.**  This test does not clear the inspection panel. It verifies that `fitView` uses inspectio",
+    "bug_hint": false,
+    "score": 10
+  },
+  {
+    "repo": "microsoft/autogen",
+    "number": 7054,
+    "url": "https://github.com/microsoft/autogen/pull/7054",
+    "title": "Add missing reasoning_effort parameter support for OpenAI GPT-5 models",
+    "additions": 118,
+    "deletions": 0,
+    "changed_files": 2,
+    "substantive": 3,
+    "fixes": [
+      "Merge branch 'main' into copilot/fix-9af7443e-3790-4413-a988-25b41c64714d",
+      "Update python/packages/autogen-ext/src/autogen_ext/models/openai/config/__init__.py",
+      "Fix pyright errors in reasoning_effort tests by adding ignore comments for private usage"
+    ],
+    "rep": "  ```suggestion      reasoning_effort: Optional[Literal[\"minimal\", \"low\", \"medium\", \"high\"]]  ```",
+    "bug_hint": false,
+    "score": 8
+  },
+  {
+    "repo": "crewAIInc/crewAI",
+    "number": 7117,
+    "url": "https://github.com/crewAIInc/crewAI/pull/7117",
+    "title": "feat(events): report machine size as a coarse band, not a core count",
+    "additions": 127,
+    "deletions": 5,
+    "changed_files": 7,
+    "substantive": 2,
+    "fixes": [
+      "docs(telemetry): say where the cpu band comes from"
+    ],
+    "rep": "_🎯 Functional Correctness_ | _🟡 Minor_ | _⚡ Quick win_  **Correct the CPU-band data-source description.**  `cpu_band` uses `os.cpu_count()`. It does not use environment variables. Limit the environmen",
+    "bug_hint": false,
+    "score": 7
+  },
+  {
+    "repo": "langchain-ai/langgraph",
+    "number": 8569,
+    "url": "https://github.com/langchain-ai/langgraph/pull/8569",
+    "title": "fix(langgraph): detect subgraphs from bytecode instead of source",
+    "additions": 358,
+    "deletions": 142,
+    "changed_files": 2,
+    "substantive": 8,
+    "fixes": [
+      "Merge branch 'main' into fix/subgraph-detection-from-bytecode"
+    ],
+    "rep": "This holds when the captured value *is* the graph, but not when the graph sits one attribute off it. The closure root survives; the `LOAD_ATTR` chain doesn't, and `co_names` keeps the names without th",
+    "bug_hint": false,
+    "score": 7
+  },
+  {
+    "repo": "langchain-ai/langgraph",
+    "number": 8598,
+    "url": "https://github.com/langchain-ai/langgraph/pull/8598",
+    "title": "feat(sdk-py): add decrypt replacement result",
+    "additions": 88,
+    "deletions": 11,
+    "changed_files": 5,
+    "substantive": 2,
+    "fixes": [
+      "fix(sdk): preserve decrypt handler types"
+    ],
+    "rep": "<!-- open-swe-review-comment {\"id\":\"f_3f966a0883\",\"file_path\":\"libs/sdk-py/langgraph_sdk/encryption/types.py\",\"start_line\":80,\"end_line\":82,\"side\":\"RIGHT\"} -->  🟡 **Decorator widens existing handler r",
+    "bug_hint": false,
+    "score": 7
+  },
+  {
+    "repo": "getsentry/sentry-python",
+    "number": 7263,
+    "url": "https://github.com/getsentry/sentry-python/pull/7263",
+    "title": "chore: Drop more deprecated stuff",
+    "additions": 26,
+    "deletions": 228,
+    "changed_files": 11,
+    "substantive": 2,
+    "fixes": [
+      "fix type"
+    ],
+    "rep": "### Callable transports silently send events  **High Severity**  <!-- DESCRIPTION START --> After function transports were removed, a callable passed as `transport` is no longer recognized. `make_tran",
+    "bug_hint": false,
+    "score": 7
+  },
+  {
+    "repo": "encode/httpx",
+    "number": 3440,
+    "url": "https://github.com/encode/httpx/pull/3440",
+    "title": "Add test for request params behavior changes (#3364)",
+    "additions": 14,
+    "deletions": 0,
+    "changed_files": 2,
+    "substantive": 1,
+    "fixes": [
+      "Update CHANGELOG.md"
+    ],
+    "rep": "```suggestion  * Bugfix: When passing `params={}`, always strictly update rather than merge with an existing querystring. (#3364)  ```",
+    "bug_hint": true,
+    "score": 6
+  },
+  {
+    "repo": "sqlfluff/sqlfluff",
+    "number": 8388,
+    "url": "https://github.com/sqlfluff/sqlfluff/pull/8388",
+    "title": "Clickhouse: support CONSTRAINT ... CHECK/ASSUME table constraints",
+    "additions": 75,
+    "deletions": 11,
+    "changed_files": 4,
+    "substantive": 1,
+    "fixes": [
+      "Update src/sqlfluff/dialects/dialect_clickhouse.py"
+    ],
+    "rep": "<!-- cubic:v=df44290a-0671-41d5-817d-1d15aaf52687 --> <!-- cubic:review-run=fc228af3-4d54-4cc6-93f6-fdb6e6a5bf46 --> <!-- metadata:{\"confidence\":6} --> P3: The CHECK and ASSUME branches only differ by",
+    "bug_hint": false,
+    "score": 5
+  }
+]

@@ -1,0 +1,243 @@
+diff --git a/MIGRATION_GUIDE.md b/MIGRATION_GUIDE.md
+index a27c32145b..3ba8ed984f 100644
+--- a/MIGRATION_GUIDE.md
++++ b/MIGRATION_GUIDE.md
+@@ -82,6 +82,11 @@ Looking to upgrade from Sentry SDK 2.x to 3.x? Here's a comprehensive list of wh
+ - The deprecated `propagate_traces` option has been removed. Use `trace_propagation_targets` instead, which gives you more power over trace propagation. Note that only the top-level `init` option was removed; the `propagate_traces` option of the Celery integration remains available.
+ - Removed Spotlight integration for Django. See [Spotlight 2.0](https://github.com/getsentry/spotlight/issues/891) for more context.
+ - The deprecated parameter `propagate_hub` in `ThreadingIntegration()` was removed.
++- `configure_debug_hub` was removed.
++- The `max_spans` option of the `LangchainIntegration` was removed.
++- `Baggage.from_options` was removed.
++- `Transport.capture_event` was removed. Use `Transport.capture_envelope` instead.
++- Function transports were removed.
+ 
+ ## Deprecated
+ 
+diff --git a/sentry_sdk/_init_implementation.py b/sentry_sdk/_init_implementation.py
+index 3051ae010b..4a3903fc5a 100644
+--- a/sentry_sdk/_init_implementation.py
++++ b/sentry_sdk/_init_implementation.py
+@@ -12,13 +12,6 @@
+ 
+ 
+ class _InitGuard:
+-    _CONTEXT_MANAGER_DEPRECATION_WARNING_MESSAGE = (
+-        "Using the return value of sentry_sdk.init as a context manager "
+-        "and manually calling the __enter__ and __exit__ methods on the "
+-        "return value are deprecated. We are no longer maintaining this "
+-        "functionality, and we will remove it in the next major release."
+-    )
+-
+     def __init__(self, client: "sentry_sdk.Client") -> None:
+         self._client = client
+ 
+diff --git a/sentry_sdk/debug.py b/sentry_sdk/debug.py
+index 795882e9ef..466f680528 100644
+--- a/sentry_sdk/debug.py
++++ b/sentry_sdk/debug.py
+@@ -1,6 +1,5 @@
+ import logging
+ import sys
+-import warnings
+ from logging import LogRecord
+ 
+ from sentry_sdk import get_client
+@@ -27,11 +26,3 @@ def configure_logger() -> None:
+     logger.addHandler(_handler)
+     logger.setLevel(logging.DEBUG)
+     logger.addFilter(_DebugFilter())
+-
+-
+-def configure_debug_hub() -> None:
+-    warnings.warn(
+-        "configure_debug_hub is deprecated. Please remove calls to it, as it is a no-op.",
+-        DeprecationWarning,
+-        stacklevel=2,
+-    )
+diff --git a/sentry_sdk/integrations/langchain.py b/sentry_sdk/integrations/langchain.py
+index 25a6ae2467..0009c764a8 100644
+--- a/sentry_sdk/integrations/langchain.py
++++ b/sentry_sdk/integrations/langchain.py
+@@ -1,7 +1,6 @@
+ import itertools
+ import json
+ import sys
+-import warnings
+ from collections import OrderedDict
+ from functools import wraps
+ from typing import TYPE_CHECKING, NamedTuple
+@@ -236,18 +235,8 @@ class LangchainIntegration(Integration):
+     def __init__(
+         self: "LangchainIntegration",
+         include_prompts: bool = True,
+-        max_spans: "Optional[int]" = None,
+     ) -> None:
+         self.include_prompts = include_prompts
+-        self.max_spans = max_spans
+-
+-        if max_spans is not None:
+-            warnings.warn(
+-                "The `max_spans` parameter of `LangchainIntegration` is "
+-                "deprecated and will be removed in version 3.0 of sentry-sdk.",
+-                DeprecationWarning,
+-                stacklevel=2,
+-            )
+ 
+     @staticmethod
+     def setup_once() -> None:
+@@ -274,19 +263,10 @@ def setup_once() -> None:
+ class SentryLangchainCallback(BaseCallbackHandler):
+     """Callback handler that creates Sentry spans."""
+ 
+-    def __init__(
+-        self, max_span_map_size: "Optional[int]", include_prompts: bool
+-    ) -> None:
++    def __init__(self, include_prompts: bool) -> None:
+         self.span_map: "OrderedDict[UUID, Union[sentry_sdk.tracing.Span, StreamedSpan]]" = OrderedDict()
+-        self.max_span_map_size = max_span_map_size
+         self.include_prompts = include_prompts
+ 
+-    def gc_span_map(self) -> None:
+-        if self.max_span_map_size is not None:
+-            while len(self.span_map) > self.max_span_map_size:
+-                run_id, span = self.span_map.popitem(last=False)
+-                self._exit_span(span, run_id)
+-
+     def _handle_error(self, run_id: "UUID", error: "Any") -> None:
+         is_ignored = isinstance(error, tuple(LangchainIntegration._ignored_exceptions))
+ 
+@@ -356,7 +336,6 @@ def _create_span(
+ 
+         span.__enter__()
+         self.span_map[run_id] = span
+-        self.gc_span_map()
+         return span
+ 
+     def _exit_span(
+@@ -1135,7 +1114,6 @@ def new_configure(
+             for cb in itertools.chain(callbacks_list, inheritable_callbacks_list)
+         ):
+             sentry_handler = SentryLangchainCallback(
+-                integration.max_spans,
+                 integration.include_prompts,
+             )
+             if isinstance(local_callbacks, BaseCallbackManager):
+diff --git a/sentry_sdk/tracing_utils.py b/sentry_sdk/tracing_utils.py
+index c7ed24ba56..a931124538 100644
+--- a/sentry_sdk/tracing_utils.py
++++ b/sentry_sdk/tracing_utils.py
+@@ -749,16 +749,6 @@ def from_incoming_header(
+ 
+         return Baggage(sentry_items, third_party_items, mutable)
+ 
+-    @classmethod
+-    def from_options(cls, scope: "sentry_sdk.scope.Scope") -> "Optional[Baggage]":
+-        """
+-        Deprecated: use populate_from_propagation_context
+-        """
+-        if scope._propagation_context is None:
+-            return Baggage({})
+-
+-        return Baggage.populate_from_propagation_context(scope._propagation_context)
+-
+     @classmethod
+     def populate_from_propagation_context(
+         cls, propagation_context: "PropagationContext"
+diff --git a/sentry_sdk/transport.py b/sentry_sdk/transport.py
+index d98b8597fa..72a3a5e81d 100644
+--- a/sentry_sdk/transport.py
++++ b/sentry_sdk/transport.py
+@@ -7,7 +7,6 @@
+ import socket
+ import ssl
+ import time
+-import warnings
+ from abc import ABC, abstractmethod
+ from collections import defaultdict
+ from datetime import datetime, timedelta, timezone
+@@ -68,7 +67,7 @@
+ 
+     from urllib3.poolmanager import PoolManager, ProxyManager
+ 
+-    from sentry_sdk._types import Event, EventDataCategory
++    from sentry_sdk._types import EventDataCategory
+ 
+ KEEP_ALIVE_SOCKET_OPTIONS = []
+ for option in [
+@@ -113,24 +112,6 @@ def __init__(self: "Self", options: "Optional[Dict[str, Any]]" = None) -> None:
+         else:
+             self.parsed_dsn = None
+ 
+-    def capture_event(self: "Self", event: "Event") -> None:
+-        """
+-        DEPRECATED: Please use capture_envelope instead.
+-
+-        This gets invoked with the event dictionary when an event should
+-        be sent to sentry.
+-        """
+-
+-        warnings.warn(
+-            "capture_event is deprecated, please use capture_envelope instead!",
+-            DeprecationWarning,
+-            stacklevel=2,
+-        )
+-
+-        envelope = Envelope()
+-        envelope.add_event(event)
+-        self.capture_envelope(envelope)
+-
+     @abstractmethod
+     def capture_envelope(self: "Self", envelope: "Envelope") -> None:
+         """
+@@ -1136,35 +1117,6 @@ def __getattr__(self, name: str) -> "Any":
+         return getattr(self._inner, name)
+ 
+ 
+-class _FunctionTransport(Transport):
+-    """
+-    DEPRECATED: Users wishing to provide a custom transport should subclass
+-    the Transport class, rather than providing a function.
+-    """
+-
+-    def __init__(
+-        self,
+-        func: "Callable[[Event], None]",
+-    ) -> None:
+-        Transport.__init__(self)
+-        self._func = func
+-
+-    def capture_event(
+-        self,
+-        event: "Event",
+-    ) -> None:
+-        self._func(event)
+-        return None
+-
+-    def capture_envelope(self, envelope: "Envelope") -> None:
+-        # Since function transports expect to be called with an event, we need
+-        # to iterate over the envelope and call the function for each event, via
+-        # the deprecated capture_event method.
+-        event = envelope.get_event()
+-        if event is not None:
+-            self.capture_event(event)
+-
+-
+ def make_transport(options: "Dict[str, Any]") -> "Optional[Transport]":
+     ref_transport = options["transport"]
+ 
+@@ -1208,14 +1160,6 @@ def make_transport(options: "Dict[str, Any]") -> "Optional[Transport]":
+         transport = ref_transport
+     elif isinstance(ref_transport, type) and issubclass(ref_transport, Transport):
+         transport_cls = ref_transport
+-    elif callable(ref_transport):
+-        warnings.warn(
+-            "Function transports are deprecated and will be removed in a future release."
+-            "Please provide a Transport instance or subclass, instead.",
+-            DeprecationWarning,
+-            stacklevel=2,
+-        )
+-        transport = _FunctionTransport(ref_transport)
+ 
+     # if a transport class is given only instantiate it if the dsn is not
+     # empty or None

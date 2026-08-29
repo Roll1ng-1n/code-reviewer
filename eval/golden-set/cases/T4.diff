@@ -1,0 +1,147 @@
+diff --git a/src/sqlfluff/dialects/dialect_clickhouse.py b/src/sqlfluff/dialects/dialect_clickhouse.py
+index d4a573163d..573ab1dab5 100644
+--- a/src/sqlfluff/dialects/dialect_clickhouse.py
++++ b/src/sqlfluff/dialects/dialect_clickhouse.py
+@@ -1559,6 +1559,24 @@ class ColumnConstraintSegment(BaseSegment):
+     )
+ 
+ 
++class TableConstraintSegment(ansi.TableConstraintSegment):
++    """A table constraint, e.g. for CREATE TABLE.
++
++    ClickHouse's CONSTRAINT clause only supports CHECK and ASSUME
++    https://clickhouse.com/docs/en/sql-reference/statements/create/table#constraints
++    """
++
++    type = "table_constraint"
++    match_grammar: Matchable = Sequence(
++        "CONSTRAINT",
++        Ref("ObjectReferenceSegment"),
++        OneOf(
++            Sequence("CHECK", Ref("ExpressionSegment")),
++            Sequence("ASSUME", Ref("ExpressionSegment")),
++        ),
++    )
++
++
+ class CreateDatabaseStatementSegment(ansi.CreateDatabaseStatementSegment):
+     """A `CREATE DATABASE` statement.
+ 
+diff --git a/src/sqlfluff/dialects/dialect_clickhouse_keywords.py b/src/sqlfluff/dialects/dialect_clickhouse_keywords.py
+index 94a2001c6d..60d75dc245 100644
+--- a/src/sqlfluff/dialects/dialect_clickhouse_keywords.py
++++ b/src/sqlfluff/dialects/dialect_clickhouse_keywords.py
+@@ -104,6 +104,7 @@
+     "AS",
+     "ASCENDING",
+     "ASOF",
++    "ASSUME",
+     "AST",
+     "ASYNC",
+     "ATOMIC",
+diff --git a/test/fixtures/dialects/clickhouse/create_table.sql b/test/fixtures/dialects/clickhouse/create_table.sql
+index 67bdc02fe0..ad91369af3 100644
+--- a/test/fixtures/dialects/clickhouse/create_table.sql
++++ b/test/fixtures/dialects/clickhouse/create_table.sql
+@@ -85,3 +85,10 @@ ORDER BY d
+ TTL d + INTERVAL 1 MONTH DELETE,
+     d + INTERVAL 1 WEEK TO VOLUME 'aaa',
+     d + INTERVAL 2 WEEK TO DISK 'bbb';
++
++CREATE TABLE my_table
++(
++    name1 String,
++    CONSTRAINT constraint_name_1 ASSUME (name1 = 'test')
++)
++ENGINE = MergeTree;
+diff --git a/test/fixtures/dialects/clickhouse/create_table.yml b/test/fixtures/dialects/clickhouse/create_table.yml
+index 7c8a48f261..b60e9911f6 100644
+--- a/test/fixtures/dialects/clickhouse/create_table.yml
++++ b/test/fixtures/dialects/clickhouse/create_table.yml
+@@ -3,7 +3,7 @@
+ # computed by SQLFluff when running the tests. Please run
+ # `python test/generate_parse_fixture_yml.py`  to generate them after adding or
+ # altering SQL files.
+-_hash: 4dee5ecad8c6d6523207b03f6b22dedb4895f60935f2b35751c5e3228b7a7fa2
++_hash: 02e93d2b4a90a471ee3fba20d90c6b29cee1a4cf6cca8a4e879dfab1a579343b
+ file:
+ - statement:
+     create_table_statement:
+@@ -608,18 +608,18 @@ file:
+     - table_reference:
+         naked_identifier: table_name
+     - bracketed:
+-      - start_bracket: (
+-      - column_definition:
++        start_bracket: (
++        column_definition:
+           naked_identifier: name1
+           data_type:
+             data_type_identifier: String
+-      - comma: ','
+-      - column_definition:
+-          naked_identifier: CONSTRAINT
+-          data_type:
+-            data_type_identifier: constraint_name_1
+-          column_constraint_segment:
+-            keyword: CHECK
++        comma: ','
++        table_constraint:
++        - keyword: CONSTRAINT
++        - object_reference:
++            naked_identifier: constraint_name_1
++        - keyword: CHECK
++        - expression:
+             bracketed:
+               start_bracket: (
+               expression:
+@@ -629,7 +629,7 @@ file:
+                   raw_comparison_operator: '='
+                 quoted_literal: "'test'"
+               end_bracket: )
+-      - end_bracket: )
++        end_bracket: )
+     - engine:
+         keyword: ENGINE
+         comparison_operator:
+@@ -793,3 +793,40 @@ file:
+       - keyword: DISK
+       - quoted_literal: "'bbb'"
+ - statement_terminator: ;
++- statement:
++    create_table_statement:
++    - keyword: CREATE
++    - keyword: TABLE
++    - table_reference:
++        naked_identifier: my_table
++    - bracketed:
++        start_bracket: (
++        column_definition:
++          naked_identifier: name1
++          data_type:
++            data_type_identifier: String
++        comma: ','
++        table_constraint:
++        - keyword: CONSTRAINT
++        - object_reference:
++            naked_identifier: constraint_name_1
++        - keyword: ASSUME
++        - expression:
++            bracketed:
++              start_bracket: (
++              expression:
++                column_reference:
++                  naked_identifier: name1
++                comparison_operator:
++                  raw_comparison_operator: '='
++                quoted_literal: "'test'"
++              end_bracket: )
++        end_bracket: )
++    - engine:
++        keyword: ENGINE
++        comparison_operator:
++          raw_comparison_operator: '='
++        table_engine_function:
++          function_name:
++            function_name_identifier: MergeTree
++- statement_terminator: ;

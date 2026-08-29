@@ -1,0 +1,20 @@
+Add missing reasoning_effort parameter support for OpenAI GPT-5 models
+
+Adding support for reasoning_effort parameter in OpenAI GPT-5 model configurations
+
+## ✅ ISSUE RESOLVED - Complete Fix Implemented
+
+The issue is that the `reasoning_effort` parameter for GPT-5 models was being filtered out during configuration processing. This has been completely resolved.
+
+## Root Cause Analysis
+
+- ✅ OpenAI Python SDK (v1.93.0) includes `reasoning_effort` as a valid parameter
+- ✅ AutoGen's `create_kwargs` includes `reasoning_effort` 
+- ❌ **PROBLEM**: The parameter was missing from the Pydantic configuration models
+- ❌ **PROBLEM**: The parameter was dropped from `_raw_config` and `_create_args`
+
+## Complete Implementation
+
+- [x] Analyze repository structure and identify the issue location
+- [x] Confirm `reasoning_effort` is in OpenAI API parameters  
+- [x] Reproduce the is

@@ -1,0 +1,5 @@
+feat(events): report machine size as a coarse band, not a core count
+
+- Adds `cpu_band` to the common span attributes — a coarse machine-size band on every span, so "is this a server or someone's laptop" becomes answerable. `runtime_context` says *where* a process runs but has no capacity axis, and its largest bucket is a catch-all: a gunicorn worker on a VM and `python main.py > out.log` on a MacBook both report `non_interactive`; Docker Desktop on a laptop reports `container` via `/.dockerenv`; a Remote-SSH shell on a server reports `vscode_terminal`.
+- No public API change. `crewai_core.runtime_env` is not re-exported from either package root, and `detect_cpu_band` is new — so unlike the moved detection helpers it gets no compatibility shim in `crewai.telemetry.utils`.
+- **The `share_crew`-gated exact `cpus` attribute and the four `platform*` attributes a
