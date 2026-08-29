@@ -1,0 +1,9 @@
+{
+  "id": "case2",
+  "name": "货币精度违规（float 运算 + int 截断）",
+  "file": "src/orders/pricing.py",
+  "probe": "rate = pct / 100.0",
+  "rule_section": "货币精度",
+  "rule_kw": ["float", "精度", "整数分"],
+  "min_severity": "concern"
+}

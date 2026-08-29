@@ -1,0 +1,9 @@
+{
+  "id": "case3",
+  "name": "库存支付顺序违规（先支付后扣库存）",
+  "file": "src/orders/inventory.py",
+  "probe": "payments.capture(order[\"payment_id\"], order[\"amount_cents\"])",
+  "rule_section": "库存与支付顺序",
+  "rule_kw": ["顺序", "先扣", "库存"],
+  "min_severity": "concern"
+}

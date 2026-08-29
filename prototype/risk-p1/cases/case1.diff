@@ -1,0 +1,31 @@
+diff --git a/src/orders/cancel.py b/src/orders/cancel.py
+index 8ffaea6..3cbc233 100644
+--- a/src/orders/cancel.py
++++ b/src/orders/cancel.py
+@@ -1,20 +1,14 @@
+-"""订单取消：幂等取消、退款、回补库存。"""
++"""订单取消：取消、退款、回补库存。"""
+ from orders import audit, inventory, payments
+ 
+ 
+ def cancel_order(order_id):
+-    """取消订单。
+-
+-    幂等保证：条件更新（仅 PENDING 可取消），重复调用无副作用。
+-    """
+-    updated = db_execute(
+-        "UPDATE orders SET status = 'CANCELLED' WHERE id = ? AND status = 'PENDING'",
+-        order_id,
+-    )
+-    if not updated:
+-        return  # 已取消/已完成：幂等返回
+-
++    """取消订单。已取消的订单直接返回。"""
+     order = db_query("SELECT * FROM orders WHERE id = ?", order_id)
++    if order["status"] == "CANCELLED":
++        return
++
++    db_execute("UPDATE orders SET status = 'CANCELLED' WHERE id = ?", order_id)
+     payments.refund(order["payment_id"], order["amount_cents"])
+     inventory.restore(order["items"])
+     audit.log("order.cancelled", order_id)

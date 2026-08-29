@@ -1,0 +1,9 @@
+{
+  "id": "case1",
+  "name": "取消幂等违规（check-then-act 竞态，带防护假象）",
+  "file": "src/orders/cancel.py",
+  "probe": "UPDATE orders SET status = 'CANCELLED' WHERE id = ?",
+  "rule_section": "幂等性",
+  "rule_kw": ["幂等"],
+  "min_severity": "concern"
+}

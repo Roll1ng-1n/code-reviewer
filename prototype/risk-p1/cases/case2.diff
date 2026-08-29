@@ -1,0 +1,16 @@
+diff --git a/src/orders/pricing.py b/src/orders/pricing.py
+index 531f529..f7848d0 100644
+--- a/src/orders/pricing.py
++++ b/src/orders/pricing.py
+@@ -2,8 +2,9 @@
+ 
+ 
+ def apply_discount(amount_cents, pct):
+-    """按百分比折扣：先乘后除，最后一步银行家舍入。"""
+-    return round(amount_cents * pct / 100)
++    """按百分比折扣。"""
++    rate = pct / 100.0
++    return int(amount_cents * rate)
+ 
+ 
+ def member_price(amount_cents, tier):
