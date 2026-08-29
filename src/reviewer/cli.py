@@ -22,11 +22,16 @@ Spec KB（#19）：--spec（可重复 / 逗号分隔）+ spec_kb.paths + 约定�
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import sqlite3
 import sys
+import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+
+from langgraph.types import Command
 
 from .config import Config, ConfigError, load_config
 from .contract import (
@@ -92,6 +97,11 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--show-nits", dest="show_nits", action="store_true",
         help="展开 gatekeeper 默认折叠的 nit 组（仅人类可读渲染生效；mentor 不折叠，忽略此参数）",
+    )
+    parser.add_argument(
+        "--interactive", dest="interactive", action="store_true",
+        help="实验性功能（#23）：逐条 finding 人工确认（interrupt() + SqliteSaver 持久化）；"
+             "默认关闭，仅影响开启时的执行路径",
     )
 
 
@@ -173,6 +183,106 @@ def _metadata(
     return meta
 
 
+class _ConfirmAbort(Exception):
+    """--interactive 用户选 ``q`` 中止确认（#23）：不产出报告，走中断退出码。"""
+
+
+def _interactive_thread_id(repo: Path, diff: str) -> str:
+    """#23：thread_id 由命令参数派生（同任务可恢复，不同任务隔离）。
+
+    SqliteSaver 需要 ``config["configurable"]["thread_id"]`` 区分线程；此处取被审
+    仓库名 + diff 文本 hash 前 12 位，保证「同仓库同改动」恢复时命中同一 checkpoint，
+    不同任务互不串扰。
+    """
+    digest = hashlib.sha256(diff.encode("utf-8")).hexdigest()[:12]
+    return f"{repo.resolve().name}:{digest}"
+
+
+def _make_checkpointer():
+    """#23：构造 SqliteSaver（本地 SQLite 文件，放系统临时目录）。
+
+    惰性 import：``langgraph.checkpoint.sqlite`` 来自独立包
+    ``langgraph-checkpoint-sqlite``（本票新增依赖）。文件落在临时目录，线程短、
+    体积小，不污染仓库；生产化再换 PostgresSaver（调研 #2 §4.1）。
+    """
+    from langgraph.checkpoint.sqlite import SqliteSaver
+
+    path = Path(tempfile.gettempdir()) / "reviewer_interactive_checkpoints.db"
+    # from_conn_string 返回 context manager；connect 直接给 sqlite3.Connection
+    return SqliteSaver(sqlite3.connect(str(path), check_same_thread=False))
+
+
+def _render_confirm(findings: list[dict]) -> None:
+    """#23：渲染确认列表到 stderr（人类可读，不污染 --json 的 stdout 契约）。
+
+    展示每条 finding 的序号 / 严重度 / 文件:行号 / 一句话结论，并提示决策语法：
+    ``a`` 全通过 / ``d`` 全丢弃 / ``1,3`` 保留选中 / ``q`` 中止。
+    """
+    print("\n[实验性功能 --interactive] 请确认以下 findings 是否保留：", file=sys.stderr)
+    for f in findings:
+        sev = f.get("severity", "?")
+        fid = f.get("id", "?")
+        loc = f"{f.get('file', '?')}:{f.get('line', '?')}"
+        print(f"  [{fid}] ({sev}) {loc}  {f.get('message', '')}", file=sys.stderr)
+    print("决策：a=全部保留  d=全部丢弃  1,3=保留选中序号  q=中止", file=sys.stderr)
+
+
+def _invoke_interactive(graph, initial_state: dict, repo: Path) -> dict:
+    """#23：官方 CLI interrupt 循环（调研 #2 §4.2/§4.3）。
+
+    ``graph.invoke`` → 捕获 ``__interrupt__`` 载荷 → 渲染确认列表 → 读用户决策 →
+    ``graph.invoke(Command(resume=保留列表), config)`` 循环，直至无 interrupt。
+    ``thread_id`` 由 ``_interactive_thread_id`` 派生，保证同任务可恢复。
+    """
+    config = {"configurable": {"thread_id": _interactive_thread_id(repo, initial_state["diff"])}}
+    result = graph.invoke(initial_state, config=config)
+    while "__interrupt__" in result:
+        interrupts = result["__interrupt__"]
+        # 取第一个 interrupt 的 value（本票单 confirm 节点、单次 interrupt）
+        payload = interrupts[0].value
+        findings = payload.get("findings", [])
+        _render_confirm(findings)
+        sys.stderr.write("> ")
+        sys.stderr.flush()
+        try:
+            decision = input().strip()
+        except EOFError:
+            # stdin 无输入（管道/非交互终端）→ 视为中止，不阻塞也不静默放行
+            raise _ConfirmAbort()
+        kept = _resolve_decision(decision, findings)
+        result = graph.invoke(Command(resume=kept), config=config)
+    return result
+
+
+def _resolve_decision(decision: str, findings: list[dict]) -> list[dict]:
+    """#23：把用户输入解析为「保留的 findings 列表」。
+
+    - ``a`` → 全部保留；``d`` → 全部丢弃；``q`` → 抛 :class:`_ConfirmAbort` 中止；
+    - ``1,3`` → 按序号（findings 已带 F001.. 连续编号，取数字部分匹配）保留选中；
+    - 空 / 非法 → 保守全部保留（避免静默丢发现）。
+    """
+    if decision == "a":
+        return findings
+    if decision == "d":
+        return []
+    if decision == "q":
+        raise _ConfirmAbort()
+    if decision:
+        # 序号集：解析 "1,3" / "1 3" 为保留的 finding 编号
+        wanted: set[int] = set()
+        for token in decision.replace(",", " ").split():
+            if token.isdigit():
+                wanted.add(int(token))
+        if wanted:
+            kept = []
+            for i, f in enumerate(findings, start=1):
+                if i in wanted:
+                    kept.append(f)
+            return kept
+    # 空 / 无法识别 → 保守全部保留
+    return findings
+
+
 def _run_review(
     *,
     diff: str,
@@ -185,29 +295,38 @@ def _run_review(
     head_ref: str | None,
     spec_sources: SpecSources,
     arm: str,
+    interactive: bool = False,
 ) -> dict:
     provider = make_provider(config)
     # #18 接线：experts.enabled 送达 router（纯规则过滤出运行时分支集合）
     # #19 接线：spec 三层来源打包送达 spec-kb 节点（KB 空 → router 剔除 spec）
     # #22 接线：--arm 送达 router（panel 四专家 fan-out / baseline 单融合专家）
+    # #23 接线：interactive 才构造 SqliteSaver + 挂 confirm 节点，批处理零开销
     graph = build_review_graph(
         provider,
         experts_enabled=config.experts.enabled,
         spec_sources=spec_sources,
         arm=arm,
+        checkpointer=_make_checkpointer() if interactive else None,
+        interactive=interactive,
     )
+    initial_state = {
+        "diff": diff,
+        "mode": mode,
+        "description": description,
+        # #16 接线：被审仓库根路径进 state——#17（结构地图/import 邻域）
+        # 与 #19（约定目录基准）从这里取
+        "repo_root": str(repo.resolve()),
+    }
     start = time.monotonic()
     try:
-        final = graph.invoke(
-            {
-                "diff": diff,
-                "mode": mode,
-                "description": description,
-                # #16 接线：被审仓库根路径进 state——#17（结构地图/import 邻域）
-                # 与 #19（约定目录基准）从这里取
-                "repo_root": str(repo.resolve()),
-            }
-        )
+        if interactive:
+            final = _invoke_interactive(graph, initial_state, repo)
+        else:
+            final = graph.invoke(initial_state)
+    except _ConfirmAbort:
+        # 用户选 q 中止：按中断语义返回（不产出报告，由调用方统一处理）
+        raise
     except Exception as exc:
         raise ReviewerError(f"评审运行失败：{exc}") from exc
     duration_ms = round((time.monotonic() - start) * 1000)
@@ -380,6 +499,7 @@ def _run_command(args: argparse.Namespace, *, config: Config, default_mode: str)
             head_ref=head_ref,
             spec_sources=spec_sources,
             arm=args.arm,
+            interactive=args.interactive,
         )
     _emit(report, as_json=args.as_json, show_nits=args.show_nits)
     return exit_code_for(report["summary"]["verdict"])
@@ -405,6 +525,10 @@ def main(argv: list[str] | None = None) -> int:
     except ReviewerError as exc:
         print(f"reviewer: {exc}", file=sys.stderr)
         return EXIT_SOFTWARE
+    except _ConfirmAbort:
+        # #23：--interactive 用户选 q 中止 → 中断退出码（无报告产出）
+        print("reviewer: 确认已中止", file=sys.stderr)
+        return EXIT_INTERRUPTED
     except KeyboardInterrupt:
         print("reviewer: 已中断", file=sys.stderr)
         return EXIT_INTERRUPTED

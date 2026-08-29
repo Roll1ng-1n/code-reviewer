@@ -18,6 +18,10 @@
 - ``findings``：仅 aggregate 写（整体替换，单 superstep 单写者）——官方建议的
   「用带排序信息的独立字段落位」写法，聚合输出顺序确定
 - ``summary``：仅 verdict 写（覆盖）
+- ``confirmed`` / ``kept``：仅 confirm 节点写（#23 --interactive 实验）；批处理
+  路径（无 confirm 节点）永不触碰这两个 key，保持默认路径零开销。``confirmed``
+  是「是否已确认」的幂等标记：interrupt 恢复会从头重跑 confirm 节点，靠此标记
+  区分「首次待确认」与「恢复后透传」（见 graph.py ``_confirm`` docstring）。
 """
 
 from __future__ import annotations
@@ -40,3 +44,6 @@ class ReviewState(TypedDict):
     expert_findings: Annotated[list[dict[str, Any]], operator.add]
     findings: list[dict[str, Any]]
     summary: dict[str, Any]
+    # #23 --interactive：confirm 节点专用（批处理路径不触碰，保持默认零开销）
+    confirmed: bool  # 「是否已确认」幂等标记（interrupt 恢复重跑时据此透传）
+    kept: list[dict[str, Any]]  # 确认后保留的 findings（按决策过滤，进 verdict）

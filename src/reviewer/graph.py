@@ -20,9 +20,9 @@ Spec KB + 实现 10/11 #22 单 Agent 基线臂）::
 - 两臂共享 context-assembly、spec-kb、aggregate（含复核过滤）、verdict、render——
   唯一差异是分解（专家团 = 四专家并行；基线 = 单一融合专家一次调用）。
 
-后续票扩展点：
-
-- #23 ``--interactive`` interrupt()
+#23 ``--interactive`` interrupt()（实验性，默认关闭）：interactive=True 时在
+aggregate 之后插入 ``confirm`` 节点——逐条 finding 经 ``interrupt()`` 请求人工
+确认，CLI 侧 ``Command(resume=...)`` 携决策恢复（幂等透传，见 ``_confirm``）。
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from langgraph.graph import END, START, StateGraph
-from langgraph.types import Send
+from langgraph.types import Send, interrupt
 
 from .aggregate import make_aggregator
 from .context import assemble_context
@@ -68,7 +68,7 @@ def _assemble_context(state: ReviewState) -> dict:
     """context-assembly 节点（#17）：diff 读入之后、专家之前的上下文组装。
 
     纯本地计算（os.walk + stdlib ast，零模型调用）：结构地图 / import 邻域 /
-    预算统计写入共享 state（写入权约定见 state.py docstring）。repo_root 缺失
+    预算统计写入共享 state（用途见 state.py docstring）。repo_root 缺失
     （纯回放无快照）时两块上下文为空、计数 0，不致命。
     """
     return assemble_context(
@@ -78,12 +78,49 @@ def _assemble_context(state: ReviewState) -> dict:
     )
 
 
+def _confirm(state: ReviewState) -> dict:
+    """confirm 节点（#23 --interactive 实验）：逐条 finding 请求人工确认。
+
+    **幂等设计（关键，调研 #2 §4.3）**：``interrupt()`` 恢复时会从头重跑被中断
+    节点——若节点在 interrupt 前有任何副作用（如已写过 state、发过网络请求），
+    重跑会重复执行。本节点把「是否已确认」标记放在 ``state["confirmed"]``，
+    首次进入时该标记为 False → 走 interrupt 挂起等人工决策；恢复时 state 已带
+    ``confirmed=True``（由本次 interrupt 恢复后返回的更新写入）→ 直接透传已保存
+    的 ``kept``，不再二次 interrupt。节点自身在 interrupt 之前**零副作用**
+    （不写 state、不调模型），因此重跑无重复 finding、无重复调用。
+
+    交互契约：批量一次 ``interrupt({"findings": [...]})`` 返回全部 findings（已
+    带 F001.. 序号，见 aggregate 收尾编号），CLI 侧渲染确认列表、读用户决策
+    （``a`` 全通过 / ``d`` 全丢弃 / ``1,3`` 保留选中 / ``q`` 中止），再以
+    ``Command(resume=保留列表)`` 恢复——resume 值成为 ``interrupt()`` 返回值，
+    即「保留的 findings 列表」。本节点把该列表写入 ``kept``（并置 ``confirmed``
+    为 True）供 verdict 消费。
+    """
+    if state.get("confirmed"):
+        # 恢复重跑：已确认 → 直接透传上次决策结果，绝不二次 interrupt（幂等）
+        return {"kept": state.get("kept", [])}
+    findings = state.get("findings", [])
+    kept = interrupt({"findings": findings})  # 挂起等人工；resume 值 = 保留列表
+    return {"confirmed": True, "kept": kept}
+
+
+def _findings_for_verdict(state: ReviewState) -> dict:
+    """verdict 前分流节点：interactive 模式用 confirm 的 ``kept``，批处理用 ``findings``。
+
+    纯本地、零副作用；仅 interactive 图路径挂载（见 build_review_graph），
+    避免给默认批处理路径引入任何额外节点。
+    """
+    return {"findings": state.get("kept", state.get("findings", []))}
+
+
 def build_review_graph(
     provider: ModelProvider,
     *,
     experts_enabled: Sequence[str],
     spec_sources: SpecSources | None = None,
     arm: str = "panel",
+    checkpointer=None,
+    interactive: bool = False,
 ):
     """编译评审图。provider 经闭包注入——测试传假 provider 即得零网络缝。
 
@@ -93,7 +130,14 @@ def build_review_graph(
     ``arm``（#22）：``"panel"`` = 专家团四专家并行（默认）；``"baseline"`` =
     单 Agent 融合专家一次调用。两臂共享 context-assembly / spec-kb / aggregate /
     verdict / render，唯一差异是分解。
+    ``checkpointer``（#23）：透传 ``.compile(checkpointer=...)``——仅 --interactive
+    开启时 CLI 才构造 SqliteSaver 并传入，默认批处理路径保持 None（零持久化开销）。
+    ``interactive``（#23，实验性）：True 时在 aggregate 之后、verdict 之前插入
+    ``confirm`` 节点——对每条 finding 用 ``interrupt()`` 请求人工确认（批量一次
+    interrupt 返回全部 findings + 序号），CLI 侧渲染确认列表读用户决策后
+    ``Command(resume=...)`` 恢复，confirm 节点按决策过滤 findings 再进 verdict。
     """
+
 
     def _load_spec_kb(state: ReviewState) -> dict:
         """spec-kb 节点（#19）：context-assembly 之后、router 之前加载规范库。
@@ -194,6 +238,17 @@ def build_review_graph(
     for node_name in EXPERT_NODES.values():
         builder.add_edge(node_name, "aggregate")
     builder.add_edge(BASELINE_NODE, "aggregate")
-    builder.add_edge("aggregate", "verdict")
+    if interactive:
+        # #23：aggregate → confirm（逐条人工确认）→ verdict。confirm 节点用
+        # interrupt() 挂起，恢复后按决策过滤 findings 再进 verdict。
+        # 批处理路径（interactive=False）不挂 confirm，保持 aggregate→verdict
+        # 直连零额外节点——默认路径严格不受影响。
+        builder.add_node("confirm", _confirm)
+        builder.add_node("confirm_filter", _findings_for_verdict)
+        builder.add_edge("aggregate", "confirm")
+        builder.add_edge("confirm", "confirm_filter")
+        builder.add_edge("confirm_filter", "verdict")
+    else:
+        builder.add_edge("aggregate", "verdict")
     builder.add_edge("verdict", END)
-    return builder.compile()
+    return builder.compile(checkpointer=checkpointer)
