@@ -78,6 +78,12 @@ def _add_common_args(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--mode", choices=("mentor", "gatekeeper"), help="覆盖子命令默认模式")
     parser.add_argument(
+        "--arm", choices=("panel", "baseline"), default="panel",
+        help="审查臂（#22 对照实验）：panel = 专家团四专家并行（默认）；"
+             "baseline = 单 Agent 融合专家一次调用。两臂共享模型/上下文/schema，"
+             "唯一差异是分解",
+    )
+    parser.add_argument(
         "--spec", action="append", metavar="PATH",
         help="Spec KB 来源：规范文档或目录（目录递归收 *.md；可重复 / 逗号分隔；"
              "优先级最高，压过 spec_kb.paths 与约定目录 specs/、.reviewer/specs/）",
@@ -178,12 +184,17 @@ def _run_review(
     base_ref: str | None,
     head_ref: str | None,
     spec_sources: SpecSources,
+    arm: str,
 ) -> dict:
     provider = make_provider(config)
     # #18 接线：experts.enabled 送达 router（纯规则过滤出运行时分支集合）
     # #19 接线：spec 三层来源打包送达 spec-kb 节点（KB 空 → router 剔除 spec）
+    # #22 接线：--arm 送达 router（panel 四专家 fan-out / baseline 单融合专家）
     graph = build_review_graph(
-        provider, experts_enabled=config.experts.enabled, spec_sources=spec_sources
+        provider,
+        experts_enabled=config.experts.enabled,
+        spec_sources=spec_sources,
+        arm=arm,
     )
     start = time.monotonic()
     try:
@@ -368,6 +379,7 @@ def _run_command(args: argparse.Namespace, *, config: Config, default_mode: str)
             base_ref=base_ref,
             head_ref=head_ref,
             spec_sources=spec_sources,
+            arm=args.arm,
         )
     _emit(report, as_json=args.as_json, show_nits=args.show_nits)
     return exit_code_for(report["summary"]["verdict"])

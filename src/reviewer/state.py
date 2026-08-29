@@ -10,6 +10,8 @@
   rendered_text / stats / hash；router 读 documents 做「KB 空剔除 spec」，spec
   专家经 Send 读 rendered_text）
 - ``enabled_experts``：仅 router 写（覆盖；#18 起由 config.experts.enabled 过滤而来）
+- ``arm``：仅 router 写（覆盖；#22 起由 build_review_graph 的 arm 参数决定，
+  "panel" | "baseline"），条件边据此分流到专家团 fan-out 或单一融合专家
 - ``expert_findings``：仅专家节点写，``operator.add`` reducer —— 并行 fan-in 的关键；
   忘写 reducer 时默认覆盖语义会让最后完成的专家静默清掉其他专家的 findings
   （#18 四专家 Send fan-out 并行 superstep 各写各的增量，只追加不覆盖）
@@ -34,6 +36,7 @@ class ReviewState(TypedDict):
     context_stats: dict[str, Any]  # #17：上下文预算统计（降级/截断可观测，CLI 并入 metadata）
     spec_kb: dict[str, Any]  # #19：Spec KB 加载产物（documents/rendered_text/stats/hash），仅 spec-kb 节点写
     enabled_experts: list[str]
+    arm: str  # #22："panel" | "baseline"，仅 router 写，条件边据此分流
     expert_findings: Annotated[list[dict[str, Any]], operator.add]
     findings: list[dict[str, Any]]
     summary: dict[str, Any]

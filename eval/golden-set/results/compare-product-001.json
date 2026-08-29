@@ -1,0 +1,45 @@
+{
+  "model": "deepseek-chat",
+  "runs": 1,
+  "judge": "deepseek-chat (同族，无第二 key)",
+  "driver": "product-cli",
+  "arm": {
+    "panel": "四专家并行",
+    "baseline": "单 Agent 融合专家"
+  },
+  "parity_note": "不传 --repo：golden cases 无快照仓库，只有 diff+描述，与 #11 内联双臂上下文配方对齐",
+  "panel": {
+    "tps": [
+      2
+    ],
+    "fns": [
+      12
+    ],
+    "fps": [
+      26
+    ],
+    "f1s": [
+      0.09523809523809523
+    ]
+  },
+  "baseline": {
+    "tps": [
+      2
+    ],
+    "fns": [
+      12
+    ],
+    "fps": [
+      12
+    ],
+    "f1s": [
+      0.14285714285714285
+    ]
+  },
+  "paired_delta": {
+    "tp_mean": 0,
+    "tp_std": 0.0,
+    "f1_mean": -0.047619047619047616,
+    "f1_std": 0.0
+  }
+}
