@@ -219,9 +219,13 @@ def test_empty_kb_drops_spec_from_panel(
     )
     assert code == 2
     report = json.loads(out)
-    # 只调用 architecture / logic / style（3 次），spec 从未被调用
-    assert len(provider.calls) == 3
+    # 只调用 architecture / logic / style（3 次）+ 聚合复核（1 次，#20 完整版），
+    # spec 从未被调用（KB 空剔除，落图）
     assert all("spec" not in system for system, _ in provider.calls)
+    expert_calls = [
+        (s, u) for s, u in provider.calls if "审查维度" in s and "复核过滤器" not in s
+    ]
+    assert len(expert_calls) == 3
     # 报告无 spec 维度发现，其余专家不受影响
     assert [f["category"] for f in report["findings"]] == ["logic"]
     assert report["summary"]["verdict"] == "concerns"

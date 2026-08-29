@@ -29,7 +29,7 @@ from collections.abc import Sequence
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Send
 
-from .aggregate import aggregate
+from .aggregate import make_aggregator
 from .context import assemble_context
 from .experts.architecture import make_architecture_expert
 from .experts.logic import make_logic_expert
@@ -160,7 +160,7 @@ def build_review_graph(
     builder.add_node("router", _router)
     for category, node_name in EXPERT_NODES.items():
         builder.add_node(node_name, _EXPERT_FACTORIES[category](provider))
-    builder.add_node("aggregate", aggregate)
+    builder.add_node("aggregate", make_aggregator(provider))
     builder.add_node("verdict", verdict_node)
 
     builder.add_edge(START, "context_assembly")
