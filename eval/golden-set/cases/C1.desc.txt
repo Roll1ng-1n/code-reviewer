@@ -1,0 +1,2 @@
+release(langgraph): 1.2.11
+

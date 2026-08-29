@@ -1,0 +1,23 @@
+Use the field name in validation JSON schemas when `validate_by_alias` is `False`
+
+## Change Summary
+
+With `validate_by_alias=False`, the validation JSON schema still names the alias — which is the one key the model refuses:
+
+```python
+class Model(BaseModel):
+    model_config = ConfigDict(validate_by_alias=False, validate_by_name=True)
+    my_field: str = Field(alias='myAlias')
+
+Model.model_json_schema()['properties']
+#> {'myAlias': ...}
+
+Model(my_field='x')                          # accepted
+Model.model_validate({'myAlias': 'x'})       # ValidationError
+```
+
+`_get_alias_name` already resolves the alias per mode, and already falls back to the field name when no alias applies in that mode. `validate_by_alias=False` turns the validation alias off, and it was the one case not consulted:
+
+```python
+elif self.mode == 'validation':
+    alias = name if self._config.validate_by

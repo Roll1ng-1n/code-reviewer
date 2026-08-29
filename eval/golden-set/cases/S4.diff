@@ -1,0 +1,365 @@
+diff --git a/libs/checkpoint-conformance/langgraph/checkpoint/conformance/spec/test_delta_channel_history.py b/libs/checkpoint-conformance/langgraph/checkpoint/conformance/spec/test_delta_channel_history.py
+index 06fddd51dd7..179a76027ac 100644
+--- a/libs/checkpoint-conformance/langgraph/checkpoint/conformance/spec/test_delta_channel_history.py
++++ b/libs/checkpoint-conformance/langgraph/checkpoint/conformance/spec/test_delta_channel_history.py
+@@ -208,6 +208,73 @@ async def test_history_migration_plain_value_as_seed(
+     assert values == [2], f"Expected [2], got {values}"
+ 
+ 
++async def test_history_seed_ancestor_own_writes_are_replayed(
++    saver: BaseCheckpointSaver,
++) -> None:
++    """Writes stored AT the seed ancestor must be included in `writes`.
++
++    A stored value is the state ENTERING its checkpoint; the writes stored
++    under that same checkpoint are what produced its child and are therefore
++    NOT subsumed by it. Only writes at ancestors OLDER than the seed are
++    subsumed, and the walk terminates before reaching them.
++
++    This holds for plain-value seeds (migration from a pre-delta channel type)
++    exactly as it does for `_DeltaSnapshot` seeds. Skipping the seed
++    ancestor's own writes silently drops the first post-migration write.
++    """
++    from langgraph.checkpoint.base import Checkpoint
++    from langgraph.checkpoint.base.id import uuid6
++
++    from langgraph.checkpoint.conformance.test_utils import generate_metadata
++
++    tid = str(uuid4())
++    configs: list = []
++    parent_cfg = None
++
++    # step 0: older pre-delta value; its write is subsumed by step 1's value.
++    # step 1: the seed — a plain value AND a pending write that produced step 2.
++    # step 2: delta-era, no stored value, one write.
++    # step 3: head — its own write is pending for the next step, excluded.
++    for step in range(4):
++        config = {"configurable": {"thread_id": tid, "checkpoint_ns": ""}}
++        if parent_cfg:
++            config["configurable"]["checkpoint_id"] = parent_cfg["configurable"][
++                "checkpoint_id"
++            ]
++        cv: dict = {}
++        cvs: dict = {}
++        if step == 0:
++            cv["ch"] = [10]
++            cvs["ch"] = step + 1
++        elif step == 1:
++            cv["ch"] = [10, 20]
++            cvs["ch"] = step + 1
++        cp = Checkpoint(
++            v=1,
++            id=str(uuid6(clock_seq=-1)),
++            ts="",
++            channel_values=cv,
++            channel_versions=cvs,
++            versions_seen={},
++            updated_channels=None,
++        )
++        parent_cfg = await saver.aput(config, cp, generate_metadata(step=step), cvs)
++        configs.append(parent_cfg)
++        await saver.aput_writes(parent_cfg, [("ch", step)], str(uuid4()))
++
++    head = configs[-1]
++    result = await saver.aget_delta_channel_history(config=head, channels=["ch"])
++
++    assert "seed" in result["ch"], "Expected seed from plain value at step 1"
++    assert result["ch"]["seed"] == [10, 20], (
++        f"Expected nearest plain value [10, 20], got {result['ch']['seed']}"
++    )
++    values = [w[2] for w in result["ch"]["writes"]]
++    # 1 = the seed ancestor's own write (not subsumed), 2 = delta-era write.
++    # 0 is older than the seed (subsumed); 3 is pending at the head.
++    assert values == [1, 2], f"Expected [1, 2], got {values}"
++
++
+ ALL_DELTA_CHANNEL_HISTORY_TESTS = [
+     test_history_returns_writes_oldest_first,
+     test_history_seed_is_nearest_snapshot,
+@@ -216,6 +283,7 @@ async def test_history_migration_plain_value_as_seed(
+     test_history_empty_channels_returns_empty,
+     test_history_walk_to_root_no_seed,
+     test_history_migration_plain_value_as_seed,
++    test_history_seed_ancestor_own_writes_are_replayed,
+ ]
+ 
+ 
+diff --git a/libs/checkpoint/langgraph/checkpoint/memory/__init__.py b/libs/checkpoint/langgraph/checkpoint/memory/__init__.py
+index 80043c71060..0f0719c61fe 100644
+--- a/libs/checkpoint/langgraph/checkpoint/memory/__init__.py
++++ b/libs/checkpoint/langgraph/checkpoint/memory/__init__.py
+@@ -148,17 +148,16 @@ def get_delta_channel_history(
+         whose stored blob is non-empty. Other channels keep walking until
+         they find their own terminator or hit the root.
+ 
+-        Pre-delta plain-value blobs subsume their ancestor's pending
+-        writes (the value already includes them); `_DeltaSnapshot` blobs
+-        do not (snapshot is the value AT that ancestor, prior to its own
+-        pending writes that produce the child).
++        A blob is the value AT its ancestor, prior to the writes stored
++        under that same ancestor (those writes produce its child, which
++        is on the path to the target). This holds for `_DeltaSnapshot`
++        blobs and for pre-delta plain values alike, so the seed
++        ancestor's own writes are always collected. Writes at ancestors
++        older than the seed are subsumed by the seed value and are never
++        reached — the walk terminates there.
+         """
+         if not channels:
+             return {}
+-        # Imported lazily to avoid a hard checkpoint→serde-types coupling at
+-        # module import; only this override needs the runtime check.
+-        from langgraph.checkpoint.serde.types import _DeltaSnapshot
+-
+         thread_id = config["configurable"]["thread_id"]
+         checkpoint_ns = config["configurable"].get("checkpoint_ns", "")
+         checkpoint_id = config["configurable"].get("checkpoint_id", "")
+@@ -205,11 +204,6 @@ def get_delta_channel_history(
+             ):
+                 if ch not in remaining:
+                     continue
+-                blob_value = blob_value_by_ch.get(ch)
+-                if blob_value is not None and not isinstance(
+-                    blob_value, _DeltaSnapshot
+-                ):
+-                    continue
+                 collected_by_ch[ch].append(
+                     (tid, ch, self.serde.loads_typed(serialized))
+                 )
+diff --git a/libs/checkpoint/tests/test_memory.py b/libs/checkpoint/tests/test_memory.py
+index 70e22e0d826..8b536e6eab3 100644
+--- a/libs/checkpoint/tests/test_memory.py
++++ b/libs/checkpoint/tests/test_memory.py
+@@ -577,9 +577,19 @@ class TestPreDeltaBlobTerminator:
+     """
+ 
+     def _build_mixed_thread(self) -> tuple[InMemorySaver, str, str, str, str]:
+-        """Three-checkpoint chain: cp1 (pre-delta, blob=[A]), cp2 (delta,
+-        write=B), cp3 (delta, write=C). Reconstructing at cp3 must yield
+-        seed=[A] + writes=[B, C].
++        """Four-checkpoint chain spanning the migration boundary:
++
++        * `cp0` — pre-delta ancestor OLDER than the seed. Its write
++          (`OLDER-WRITE`) is already folded into `cp1`'s stored value, so the
++          walk must terminate at `cp1` and never reach it.
++        * `cp1` — pre-delta, blob `["A"]`. That value is the state ENTERING
++          `cp1`; the write stored under `cp1` (`PRE-DELTA-WRITE`) is what
++          produced `cp2` and is NOT subsumed by the blob.
++        * `cp2` — delta-era, no stored value, write `B`.
++        * `cp3` — target, delta-era, write `PENDING-AT-TARGET`.
++
++        Reconstructing at `cp3` must yield seed `["A"]` plus writes
++        `["PRE-DELTA-WRITE", "B"]`.
+ 
+         Returns `(saver, thread_id, ns, channel, cp3_id)`.
+         """
+@@ -587,16 +597,21 @@ def _build_mixed_thread(self) -> tuple[InMemorySaver, str, str, str, str]:
+         serde = JsonPlusSerializer()
+         thread_id, ns, channel = "t1", "", "messages"
+ 
++        v0 = "00000000000000000000000000000000.0"
+         v1 = "00000000000000000000000000000001.0"
+         v2 = "00000000000000000000000000000002.0"
+         v3 = "00000000000000000000000000000003.0"
+ 
+-        # Pre-delta: cp1 stored a real blob for the channel.
++        # Pre-delta: cp0 and cp1 stored real blobs for the channel.
++        saver.blobs[(thread_id, ns, channel, v0)] = serde.dumps_typed([])
+         saver.blobs[(thread_id, ns, channel, v1)] = serde.dumps_typed(["A"])
+         # Delta-era: cp2 and cp3 store "empty"; real writes in checkpoint_writes.
+         saver.blobs[(thread_id, ns, channel, v2)] = ("empty", b"")
+         saver.blobs[(thread_id, ns, channel, v3)] = ("empty", b"")
+ 
++        cp0 = empty_checkpoint()
++        cp0["id"] = "cp0"
++        cp0["channel_versions"][channel] = v0
+         cp1 = empty_checkpoint()
+         cp1["id"] = "cp1"
+         cp1["channel_versions"][channel] = v1
+@@ -608,16 +623,24 @@ def _build_mixed_thread(self) -> tuple[InMemorySaver, str, str, str, str]:
+         cp3["channel_versions"][channel] = v3
+ 
+         saver.storage[thread_id][ns] = {
+-            "cp1": (serde.dumps_typed(cp1), serde.dumps_typed({}), None),
++            "cp0": (serde.dumps_typed(cp0), serde.dumps_typed({}), None),
++            "cp1": (serde.dumps_typed(cp1), serde.dumps_typed({}), "cp0"),
+             "cp2": (serde.dumps_typed(cp2), serde.dumps_typed({}), "cp1"),
+             "cp3": (serde.dumps_typed(cp3), serde.dumps_typed({}), "cp2"),
+         }
+-        # Write under cp1 would be from the pre-delta era and MUST be ignored
+-        # (the blob already captures it). We add one and assert it is not
+-        # folded into the reconstructed result.
+-        saver.writes[(thread_id, ns, "cp1")][("task0", 0)] = (
++        # Write under cp0 is older than the seed — cp1's blob already folded
++        # it in, and the terminator must stop before reaching it.
++        saver.writes[(thread_id, ns, "cp0")][("task0", 0)] = (
+             "task0",
+             channel,
++            serde.dumps_typed("OLDER-WRITE"),
++            "",
++        )
++        # Write under cp1 postdates cp1's blob (it is what produced cp2, which
++        # stores no value of its own) and MUST be replayed.
++        saver.writes[(thread_id, ns, "cp1")][("task1", 0)] = (
++            "task1",
++            channel,
+             serde.dumps_typed("PRE-DELTA-WRITE"),
+             "",
+         )
+@@ -651,15 +674,19 @@ def test_seed_from_pre_delta_ancestor_blob(self) -> None:
+ 
+         # Seed came from the pre-delta blob at cp1.
+         assert result["seed"] == ["A"]
+-        # Delta-era writes from cp2 replay through the reducer on top of seed.
+-        # cp3 is the target — its own write is pending for the NEXT step and
+-        # must be excluded.
++        # The seed ancestor's own write and the delta-era write from cp2 both
++        # replay through the reducer on top of the seed, oldest first. cp3 is
++        # the target — its own write is pending for the NEXT step and must be
++        # excluded.
+         values = [v for _, _, v in result["writes"]]
+-        assert values == ["B"]
++        assert values == ["PRE-DELTA-WRITE", "B"]
+ 
+     def test_pre_delta_blob_terminates_walk_before_older_writes(self) -> None:
+-        """Writes stored at the pre-delta ancestor itself must not be replayed
+-        (the blob subsumes them)."""
++        """The seed terminator bounds the walk: writes at ancestors OLDER than
++        the seed are already folded into the seed value and must not be
++        replayed. The seed ancestor's own write is not one of them — it
++        postdates the stored value and produced the next checkpoint.
++        """
+         saver, thread_id, ns, channel, target = self._build_mixed_thread()
+         config: RunnableConfig = {
+             "configurable": {
+@@ -674,7 +701,9 @@ def test_pre_delta_blob_terminates_walk_before_older_writes(self) -> None:
+         ]
+ 
+         values = [v for _, _, v in result["writes"]]
+-        # The pre-delta write under cp1 must not appear (the blob subsumes it).
+-        assert "PRE-DELTA-WRITE" not in values
++        # Older than the seed — subsumed by cp1's blob, so the walk stops first.
++        assert "OLDER-WRITE" not in values
++        # Stored AT the seed ancestor — not subsumed, so it must be replayed.
++        assert "PRE-DELTA-WRITE" in values
+         # And the pending write at the target is never folded in.
+         assert "PENDING-AT-TARGET" not in values
+diff --git a/libs/langgraph/tests/test_delta_channel_migration.py b/libs/langgraph/tests/test_delta_channel_migration.py
+index 50e21ffcb7d..a0379a8ccce 100644
+--- a/libs/langgraph/tests/test_delta_channel_migration.py
++++ b/libs/langgraph/tests/test_delta_channel_migration.py
+@@ -616,3 +616,115 @@ async def test_add_messages_to_delta_migration_preserves_message_history_async()
+     assert [m.id for m in snap.values["messages"]] == ["h1", "a1"], (
+         f"async tip hydration mismatch: got {[m.id for m in snap.values['messages']]}"
+     )
++
++
++# ---------------------------------------------------------------------------
++# 8. First post-migration write, read back cold (regression for #8384)
++#
++# The migration boundary produces a checkpoint that carries BOTH a pre-delta
++# plain-value blob AND the pending write that produced its (delta-era) child.
++# That write is not subsumed by the blob — the blob is the value ENTERING that
++# checkpoint. A saver whose ancestor walk skips the seed checkpoint's own
++# writes silently drops the first post-migration write.
++#
++# The failure is invisible to the live `invoke` return value (computed
++# in-memory before persistence), so these tests must assert on a COLD read.
++# It is also invisible at `snapshot_frequency=1`, where every write is its own
++# snapshot boundary and the walk never terminates on a plain value — hence the
++# explicit default-frequency coverage.
++# ---------------------------------------------------------------------------
++
++
++def test_first_post_migration_write_survives_cold_read() -> None:
++    """One non-snapshotting write after migrating a thread to `DeltaChannel`
++    must still be present when the state is read back from the checkpointer.
++
++    Regression for #8384: `invoke` returned the correct value while
++    `get_state` dropped the write permanently.
++    """
++
++    checkpointer = InMemorySaver()
++    config = {"configurable": {"thread_id": "first-post-migration"}}
++
++    binop = _binop_graph(checkpointer)
++    binop.invoke({"items": ["a"]}, config)
++
++    delta = _delta_graph(checkpointer)
++    live = delta.invoke({"items": ["b"]}, config)
++    assert list(live["items"]) == ["a", "b"], "live invoke lost the write"
++
++    cold = delta.get_state(config)
++    assert list(cold.values["items"]) == ["a", "b"], (
++        "first post-migration write dropped on cold read: "
++        f"got {list(cold.values['items'])}"
++    )
++
++
++async def test_first_post_migration_write_survives_cold_read_async() -> None:
++    """Async variant of the #8384 regression."""
++
++    checkpointer = InMemorySaver()
++    config = {"configurable": {"thread_id": "first-post-migration-async"}}
++
++    binop = _binop_graph(checkpointer)
++    await binop.ainvoke({"items": ["a"]}, config)
++
++    delta = _delta_graph(checkpointer)
++    live = await delta.ainvoke({"items": ["b"]}, config)
++    assert list(live["items"]) == ["a", "b"], "live ainvoke lost the write"
++
++    cold = await delta.aget_state(config)
++    assert list(cold.values["items"]) == ["a", "b"], (
++        "first post-migration write dropped on cold read: "
++        f"got {list(cold.values['items'])}"
++    )
++
++
++def test_post_migration_writes_match_base_saver_fallback() -> None:
++    """Parity across the migration boundary WITH post-migration writes.
++
++    `test_base_saver_fallback_matches_optimized_override` only reads a
++    pre-migration chain, so the optimized override and the reference walk
++    never disagree there. Driving writes after the migration is what
++    separates them.
++    """
++
++    def _run(saver: Any, thread: str) -> list[tuple[Any, list]]:
++        config = {"configurable": {"thread_id": thread}}
++        _drive(_binop_graph(saver), config, "u", 2)
++        delta = _delta_graph(saver)
++        _drive(delta, config, "d", 3)
++        return [
++            (s.next, list(s.values.get("items", [])))
++            for s in delta.get_state_history(config)
++        ]
++
++    fast = _run(InMemorySaver(), "fast")
++    slow = _run(_ThirdPartyStyleSaver(), "slow")
++
++    assert fast == slow, (
++        "optimized override diverges from the base-saver fallback once "
++        f"post-migration writes exist; fast={fast}, slow={slow}"
++    )
++    # Guard the assertion above against both paths being wrong in the same way.
++    assert fast[0][1] == ["u0", "u1", "d0", "d1", "d2"], (
++        f"unexpected accumulated state: {fast[0][1]}"
++    )
++
++
++def test_add_messages_migration_keeps_first_post_migration_message() -> None:
++    """The `add_messages` -> `DeltaChannel` path is the one Deep Agents takes;
++    dropping the first post-migration write loses a real user message.
++    """
++
++    checkpointer = InMemorySaver()
++    config = {"configurable": {"thread_id": "add-messages-first-write"}}
++
++    pre_graph = _add_messages_graph(checkpointer)
++    pre_graph.invoke({"messages": [HumanMessage(content="hello", id="h1")]}, config)
++
++    delta_graph = _delta_messages_graph(checkpointer)
++    delta_graph.invoke({"messages": [HumanMessage(content="second", id="h2")]}, config)
++
++    ids = [m.id for m in delta_graph.get_state(config).values["messages"]]
++    assert "h2" in ids, f"first post-migration message dropped: {ids}"

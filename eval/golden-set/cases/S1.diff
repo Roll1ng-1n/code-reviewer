@@ -1,0 +1,106 @@
+diff --git a/libs/checkpoint/langgraph/store/base/__init__.py b/libs/checkpoint/langgraph/store/base/__init__.py
+index 08fe74525a3..727da898792 100644
+--- a/libs/checkpoint/langgraph/store/base/__init__.py
++++ b/libs/checkpoint/langgraph/store/base/__init__.py
+@@ -12,7 +12,7 @@
+ from __future__ import annotations
+ 
+ from abc import ABC, abstractmethod
+-from collections.abc import Iterable
++from collections.abc import Iterable, Mapping
+ from datetime import datetime
+ from typing import (
+     Any,
+@@ -473,10 +473,10 @@ class PutOp(NamedTuple):
+         the full path would effectively be `"documents/user123/report1"`
+     """
+ 
+-    value: dict[str, Any] | None
++    value: Mapping[str, Any] | None
+     """The data to store, or `None` to mark the item for deletion.
+ 
+-    The value must be a dictionary with string keys and JSON-serializable values.
++    The value must be a mapping with string keys and JSON-serializable values.
+     Setting this to `None` signals that the item should be deleted.
+ 
+     Example:
+@@ -857,7 +857,7 @@ def put(
+         self,
+         namespace: tuple[str, ...],
+         key: str,
+-        value: dict[str, Any],
++        value: Mapping[str, Any],
+         index: Literal[False] | list[str] | None = None,
+         *,
+         ttl: float | None | NotProvided = NOT_PROVIDED,
+@@ -869,7 +869,7 @@ def put(
+                 Example: `("documents", "user123")`
+             key: Unique identifier within the namespace. Together with namespace forms
+                 the complete path to the item.
+-            value: Dictionary containing the item's data. Must contain string keys
++            value: Mapping containing the item's data. Must contain string keys
+                 and JSON-serializable values.
+             index: Controls how the item's fields are indexed for search:
+ 
+@@ -1110,7 +1110,7 @@ async def aput(
+         self,
+         namespace: tuple[str, ...],
+         key: str,
+-        value: dict[str, Any],
++        value: Mapping[str, Any],
+         index: Literal[False] | list[str] | None = None,
+         *,
+         ttl: float | None | NotProvided = NOT_PROVIDED,
+@@ -1122,7 +1122,7 @@ async def aput(
+                 Example: `("documents", "user123")`
+             key: Unique identifier within the namespace. Together with namespace forms
+                 the complete path to the item.
+-            value: Dictionary containing the item's data. Must contain string keys
++            value: Mapping containing the item's data. Must contain string keys
+                 and JSON-serializable values.
+             index: Controls how the item's fields are indexed for search:
+ 
+diff --git a/libs/checkpoint/langgraph/store/base/batch.py b/libs/checkpoint/langgraph/store/base/batch.py
+index 64019d68fc0..9deb02e2a4d 100644
+--- a/libs/checkpoint/langgraph/store/base/batch.py
++++ b/libs/checkpoint/langgraph/store/base/batch.py
+@@ -5,7 +5,7 @@
+ import asyncio
+ import functools
+ import weakref
+-from collections.abc import Callable, Iterable
++from collections.abc import Callable, Iterable, Mapping
+ from typing import Any, Literal, TypeVar
+ 
+ from langgraph.store.base import (
+@@ -132,7 +132,7 @@ async def aput(
+         self,
+         namespace: tuple[str, ...],
+         key: str,
+-        value: dict[str, Any],
++        value: Mapping[str, Any],
+         index: Literal[False] | list[str] | None = None,
+         *,
+         ttl: float | None | NotProvided = NOT_PROVIDED,
+@@ -231,7 +231,7 @@ def put(
+         self,
+         namespace: tuple[str, ...],
+         key: str,
+-        value: dict[str, Any],
++        value: Mapping[str, Any],
+         index: Literal[False] | list[str] | None = None,
+         *,
+         ttl: float | None | NotProvided = NOT_PROVIDED,
+diff --git a/libs/checkpoint/langgraph/store/memory/__init__.py b/libs/checkpoint/langgraph/store/memory/__init__.py
+index b156c457df6..6ac8a392a20 100644
+--- a/libs/checkpoint/langgraph/store/memory/__init__.py
++++ b/libs/checkpoint/langgraph/store/memory/__init__.py
+@@ -408,7 +408,7 @@ def _apply_put_ops(self, put_ops: dict[tuple[tuple[str, ...], str], PutOp]) -> N
+                 self._vectors[namespace].pop(key, None)
+             else:
+                 self._data[namespace][key] = Item(
+-                    value=op.value,
++                    value=dict(op.value),
+                     key=key,
+                     namespace=namespace,
+                     created_at=datetime.now(timezone.utc),

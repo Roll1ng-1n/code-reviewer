@@ -1,0 +1,131 @@
+{
+  "model": "deepseek-chat",
+  "arm": "single-agent-baseline",
+  "precision": 0.1,
+  "recall": 0.125,
+  "f1": 0.11111111111111112,
+  "tp": 1,
+  "fn": 7,
+  "fp": 9,
+  "clean_fp": 2,
+  "per_case": [
+    {
+      "id": "S1",
+      "url": "https://github.com/langchain-ai/langgraph/pull/8617",
+      "n_findings": 1,
+      "latency_s": 3.0,
+      "matched": {},
+      "missed_golden": [
+        "S1-F1"
+      ],
+      "false_positives": [
+        "`dict(op.value)` may fail if `op.value` is a non-dict Mapping with non-string keys, but the type allows any Mapping[str, Any]."
+      ]
+    },
+    {
+      "id": "S3",
+      "url": "https://github.com/langchain-ai/langgraph/pull/8569",
+      "n_findings": 1,
+      "latency_s": 35.3,
+      "matched": {},
+      "missed_golden": [
+        "S3-F1",
+        "S3-F2",
+        "S3-F3"
+      ],
+      "false_positives": [
+        "?"
+      ]
+    },
+    {
+      "id": "S4",
+      "url": "https://github.com/langchain-ai/langgraph/pull/8526",
+      "n_findings": 5,
+      "latency_s": 10.2,
+      "matched": {},
+      "missed_golden": [
+        "S4-F1",
+        "S4-F2"
+      ],
+      "false_positives": [
+        "Removing the `_DeltaSnapshot` check changes the semantics for all delta-channel history walks, not just the migration case.",
+        "The removal of the `_DeltaSnapshot` check may cause writes at the seed ancestor to be replayed even when the seed is a plain value that already includes them, leading to duplicate application of the write.",
+        "The docstring update is clear, but the comment about lazy import removal is not reflected in the diff; the import was removed but the comment is gone, which is fine.",
+        "The test uses `uuid4()` but imports `uuid6`; `uuid4` is not imported in the test file.",
+        "The test `_build_mixed_thread` now creates a `cp0` with an empty checkpoint, but the `empty_checkpoint()` function is not imported in the test file."
+      ]
+    },
+    {
+      "id": "S8",
+      "url": "https://github.com/pydantic/pydantic/pull/13717",
+      "n_findings": 0,
+      "latency_s": 0.8,
+      "matched": {},
+      "missed_golden": [
+        "S8-F1"
+      ],
+      "false_positives": []
+    },
+    {
+      "id": "S6",
+      "url": "https://github.com/microsoft/autogen/pull/7521",
+      "n_findings": 1,
+      "latency_s": 1.5,
+      "matched": {
+        "S6-F1": {
+          "line": 17,
+          "severity": "nit",
+          "message": "Typo: 'MMicrosoft Agent FrameworkAF' should be 'Microsoft Agent Framework'"
+        }
+      },
+      "missed_golden": [],
+      "false_positives": []
+    },
+    {
+      "id": "C1",
+      "url": "https://github.com/langchain-ai/langgraph/pull/8595",
+      "n_findings": 0,
+      "latency_s": 0.8,
+      "false_positives": [],
+      "fp_detail": []
+    },
+    {
+      "id": "C2",
+      "url": "https://github.com/pydantic/pydantic/pull/8425",
+      "n_findings": 0,
+      "latency_s": 0.5,
+      "false_positives": [],
+      "fp_detail": []
+    },
+    {
+      "id": "C3",
+      "url": "https://github.com/crewAIInc/crewAI/pull/5747",
+      "n_findings": 2,
+      "latency_s": 3.4,
+      "false_positives": [
+        "uv publish --check-url 的语义可能与预期不符",
+        "concurrency 组名 'nightly-publish' 过于通用，可能与其他工作流冲突"
+      ],
+      "fp_detail": [
+        {
+          "file": ".github/workflows/nightly.yml",
+          "line": 129,
+          "severity": "concern",
+          "category": "logic",
+          "message": "uv publish --check-url 的语义可能与预期不符",
+          "rationale": "uv publish 的 --check-url 选项用于检查包是否已存在，但具体行为取决于 uv 版本。若该选项仅检查包名而不检查版本，则同日重跑时可能仍会尝试上传相同版本导致 400；若检查版本，则能正确跳过。需确认 uv 版本支持该选项且行为符合预期。",
+          "suggestion": "确认 uv 版本支持 --check-url 且能按版本跳过已上传文件；若不支持，可改用 --skip-existing 或先查询 PyPI 再决定是否上传。"
+        },
+        {
+          "file": ".github/workflows/nightly.yml",
+          "line": 8,
+          "severity": "nit",
+          "category": "style",
+          "message": "concurrency 组名 'nightly-publish' 过于通用，可能与其他工作流冲突",
+          "rationale": "若仓库中有其他工作流也使用相同组名，会导致意外串行化。建议使用更具体的名称，如 'nightly-publish-${{ github.ref }}' 或包含工作流标识。",
+          "suggestion": "将组名改为 'nightly-publish-${{ github.workflow }}' 或类似唯一标识。"
+        }
+      ]
+    }
+  ]
+}

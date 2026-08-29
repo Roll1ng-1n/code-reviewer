@@ -1,0 +1,9 @@
+fix(checkpoint): widen `Store` `put` value type to `Mapping[str, Any]`
+
+TypedDict values don't structurally satisfy dict[str, Any] since dict implies full mutability. Mapping[str, Any] accepts both plain dicts and TypedDicts while still requiring string keys, matching what put() actually needs from callers.
+
+Fixes #8616
+
+Verified by running lint/type/test locally across checkpoint, checkpoint-sqlite, checkpoint-postgres, prebuilt, sdk-py, and a scoped langgraph subset.
+
+LinkedIn: https://linkedin.com/in/lisandro-navarra

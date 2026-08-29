@@ -1,0 +1,13 @@
+diff --git a/HISTORY.md b/HISTORY.md
+index 89eb0a23cba..ae8ebf9b35e 100644
+--- a/HISTORY.md
++++ b/HISTORY.md
+@@ -6,7 +6,7 @@
+ 
+ #### Packaging
+ 
+-* uprev `pydantic-core` to 2.14.5
++* uprev `pydantic-core` to 2.14.6
+ 
+ #### Fixes
+ 

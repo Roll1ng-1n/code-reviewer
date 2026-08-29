@@ -1,0 +1,241 @@
+{
+  "shortlist": [
+    {
+      "repo": "langchain-ai/langgraph",
+      "number": 8617,
+      "url": "https://github.com/langchain-ai/langgraph/pull/8617",
+      "title": "fix(checkpoint): widen `Store` `put` value type to `Mapping[str, Any]`",
+      "additions": 35,
+      "deletions": 17,
+      "changed_files": 8,
+      "merged_at": "2026-08-28T13:05:05Z",
+      "review_comments": 3,
+      "substantive": 3,
+      "fix_commits": [
+        "fix(checkpoint-postgres,checkpoint-sqlite): normalize Mapping values to dict before JSON serialization",
+        "Merge branch 'main' into fix/store-put-value-mapping",
+        "fix(checkpoint): normalize mappings for indexed text"
+      ],
+      "representative_comment": "<!-- open-swe-review-comment {\"id\":\"f_5202641240\",\"file_path\":\"libs/checkpoint/langgraph/store/base/__init__.py\",\"start_line\":476,\"end_line\":479,\"side\":\"RIGHT\"} -->  🟡 **Non-dict mappings fail in pers",
+      "context_hint": "T3",
+      "type_hint": "architecture",
+      "diff_ok": true,
+      "evidence_ok": true,
+      "score": 11
+    },
+    {
+      "repo": "microsoft/autogen",
+      "number": 7054,
+      "url": "https://github.com/microsoft/autogen/pull/7054",
+      "title": "Add missing reasoning_effort parameter support for OpenAI GPT-5 models",
+      "additions": 118,
+      "deletions": 0,
+      "changed_files": 2,
+      "merged_at": "2025-09-30T05:57:46Z",
+      "review_comments": 3,
+      "substantive": 3,
+      "fix_commits": [
+        "Merge branch 'main' into copilot/fix-9af7443e-3790-4413-a988-25b41c64714d",
+        "Fix pyright errors in reasoning_effort tests by adding ignore comments for private usage",
+        "fix mypy"
+      ],
+      "representative_comment": "  ```suggestion      reasoning_effort: Optional[Literal[\"minimal\", \"low\", \"medium\", \"high\"]]  ```",
+      "context_hint": "T2",
+      "type_hint": "logic",
+      "diff_ok": true,
+      "evidence_ok": true,
+      "score": 11
+    },
+    {
+      "repo": "langchain-ai/langgraph",
+      "number": 8569,
+      "url": "https://github.com/langchain-ai/langgraph/pull/8569",
+      "title": "fix(langgraph): detect subgraphs from bytecode instead of source",
+      "additions": 358,
+      "deletions": 142,
+      "changed_files": 2,
+      "merged_at": "2026-08-18T19:04:30Z",
+      "review_comments": 10,
+      "substantive": 8,
+      "fix_commits": [
+        "Merge branch 'main' into fix/subgraph-detection-from-bytecode"
+      ],
+      "representative_comment": "This holds when the captured value *is* the graph, but not when the graph sits one attribute off it. The closure root survives; the `LOAD_ATTR` chain doesn't, and `co_names` keeps the names without th",
+      "context_hint": "T2",
+      "type_hint": "logic",
+      "diff_ok": true,
+      "evidence_ok": true,
+      "score": 9
+    },
+    {
+      "repo": "langchain-ai/langgraph",
+      "number": 8526,
+      "url": "https://github.com/langchain-ai/langgraph/pull/8526",
+      "title": "fix(checkpoint): collect writes at plain-value seed in delta channel history",
+      "additions": 241,
+      "deletions": 44,
+      "changed_files": 4,
+      "merged_at": "2026-08-07T16:29:42Z",
+      "review_comments": 14,
+      "substantive": 9,
+      "fix_commits": [
+        "test(checkpoint): address review feedback"
+      ],
+      "representative_comment": "let's do imports at the top level of the file not within the function  side note, we should have a lint rule that enforces this, but doesn't need to be added in this PR",
+      "context_hint": "T3",
+      "type_hint": "logic",
+      "diff_ok": true,
+      "evidence_ok": true,
+      "score": 9
+    },
+    {
+      "repo": "langchain-ai/langgraph",
+      "number": 8598,
+      "url": "https://github.com/langchain-ai/langgraph/pull/8598",
+      "title": "feat(sdk-py): add decrypt replacement result",
+      "additions": 88,
+      "deletions": 11,
+      "changed_files": 5,
+      "merged_at": "2026-08-19T17:45:56Z",
+      "review_comments": 2,
+      "substantive": 2,
+      "fix_commits": [
+        "fix(sdk): preserve decrypt handler types"
+      ],
+      "representative_comment": "<!-- open-swe-review-comment {\"id\":\"f_3f966a0883\",\"file_path\":\"libs/sdk-py/langgraph_sdk/encryption/types.py\",\"start_line\":80,\"end_line\":82,\"side\":\"RIGHT\"} -->  🟡 **Decorator widens existing handler r",
+      "context_hint": "T3",
+      "type_hint": "logic",
+      "diff_ok": true,
+      "evidence_ok": true,
+      "score": 7
+    },
+    {
+      "repo": "microsoft/autogen",
+      "number": 7521,
+      "url": "https://github.com/microsoft/autogen/pull/7521",
+      "title": "Update maintanence mode banner in readme",
+      "additions": 19,
+      "deletions": 10,
+      "changed_files": 1,
+      "merged_at": "2026-04-06T22:35:32Z",
+      "review_comments": 2,
+      "substantive": 2,
+      "fix_commits": [
+        "Fixing Typo"
+      ],
+      "representative_comment": "Typo - double `M` in Microsoft, `AF` suffix in Framework and `in` instead of `is`.",
+      "context_hint": "T2",
+      "type_hint": "style",
+      "diff_ok": true,
+      "evidence_ok": true,
+      "score": 7
+    },
+    {
+      "repo": "openai/openai-python",
+      "number": 3747,
+      "url": "https://github.com/openai/openai-python/pull/3747",
+      "title": "chore(deps-dev): bump mypy from 1.17 to 2.3.1",
+      "additions": 282,
+      "deletions": 43,
+      "changed_files": 3,
+      "merged_at": "2026-08-27T22:20:24Z",
+      "review_comments": 2,
+      "substantive": 2,
+      "fix_commits": [
+        "fix: preserve mypy exclusions and release marker"
+      ],
+      "representative_comment": "**<sub><sub>![P1 Badge](https://img.shields.io/badge/P1-orange?style=flat)</sub></sub>  Restore the release marker after regenerating the lockfile**  On every CI invocation, the `dependency-locks` job",
+      "context_hint": "T3",
+      "type_hint": "style",
+      "diff_ok": true,
+      "evidence_ok": true,
+      "score": 7
+    },
+    {
+      "repo": "pydantic/pydantic",
+      "number": 13717,
+      "url": "https://github.com/pydantic/pydantic/pull/13717",
+      "title": "Use the field name in validation JSON schemas when `validate_by_alias` is `False`",
+      "additions": 34,
+      "deletions": 1,
+      "changed_files": 2,
+      "merged_at": "2026-08-27T10:19:33Z",
+      "review_comments": 3,
+      "substantive": 1,
+      "fix_commits": [
+        "Apply suggestions from code review"
+      ],
+      "representative_comment": "```suggestion             alias = name if not self._config.validate_by_alias else field.get('validation_alias', name) ```",
+      "context_hint": "T2",
+      "type_hint": "logic",
+      "diff_ok": true,
+      "evidence_ok": true,
+      "score": 5
+    }
+  ],
+  "clean_candidates": [
+    {
+      "repo": "langchain-ai/langgraph",
+      "number": 8595,
+      "url": "https://github.com/langchain-ai/langgraph/pull/8595",
+      "title": "release(langgraph): 1.2.11",
+      "additions": 5,
+      "deletions": 5,
+      "changed_files": 4
+    },
+    {
+      "repo": "langchain-ai/langgraph",
+      "number": 8565,
+      "url": "https://github.com/langchain-ai/langgraph/pull/8565",
+      "title": "release(checkpoint-postgres): 3.1.2",
+      "additions": 4,
+      "deletions": 4,
+      "changed_files": 4
+    },
+    {
+      "repo": "pydantic/pydantic",
+      "number": 8425,
+      "url": "https://github.com/pydantic/pydantic/pull/8425",
+      "title": "Fix pydantic-core version in history",
+      "additions": 1,
+      "deletions": 1,
+      "changed_files": 1
+    },
+    {
+      "repo": "pydantic/pydantic",
+      "number": 8424,
+      "url": "https://github.com/pydantic/pydantic/pull/8424",
+      "title": "Fix history",
+      "additions": 0,
+      "deletions": 1,
+      "changed_files": 1
+    },
+    {
+      "repo": "crewAIInc/crewAI",
+      "number": 6222,
+      "url": "https://github.com/crewAIInc/crewAI/pull/6222",
+      "title": "feat: bump versions to 1.14.8a1",
+      "additions": 0,
+      "deletions": 0,
+      "changed_files": 0
+    },
+    {
+      "repo": "crewAIInc/crewAI",
+      "number": 5747,
+      "url": "https://github.com/crewAIInc/crewAI/pull/5747",
+      "title": "fix(ci): make nightly publish idempotent and serialized",
+      "additions": 6,
+      "deletions": 4,
+      "changed_files": 1
+    },
+    {
+      "repo": "run-llama/llama_index",
+      "number": 22843,
+      "url": "https://github.com/run-llama/llama_index/pull/22843",
+      "title": "fix(tools/mcp): correct streamable-http tuple unpack for mcp 2.0 (#22655)",
+      "additions": 53,
+      "deletions": 2,
+      "changed_files": 3
+    }
+  ]
+}

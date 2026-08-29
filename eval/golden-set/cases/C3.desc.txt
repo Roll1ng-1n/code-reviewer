@@ -1,0 +1,16 @@
+fix(ci): make nightly publish idempotent and serialized
+
+## Summary
+- Add `--check-url https://pypi.org/simple/` to `uv publish` so manual re-runs on the same day skip already-uploaded files instead of failing on PyPI 400s.
+- Add a workflow-level `concurrency` group so a `workflow_dispatch` triggered while a cron run is in flight queues instead of racing.
+- Drop the misleading `environment.url` (pointed at one of five published packages) and the unused `actions/checkout@v4` in the publish job.
+
+<!-- CURSOR_SUMMARY -->
+---
+
+> [!NOTE]
+> **Low Risk**
+> Low risk CI-only change: serializes the nightly workflow and makes PyPI uploads skip already-published artifacts, reducing rerun flakiness without affecting application runtime.
+> 
+> **Overview**
+> The nightly release workflow is now **serialized** via a workflow-level `concurrency` group so cron and

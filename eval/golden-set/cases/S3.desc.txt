@@ -1,0 +1,9 @@
+fix(langgraph): detect subgraphs from bytecode instead of source
+
+Fixes langchain-ai/langgraph#8559
+
+`find_subgraph_pregel` runs once per node at build time and recovers each node function's reachable values with `inspect.getsource` + `ast.parse`; langchain-ai/langgraph#8559 measures that source parsing at 80% of `StateGraph.compile()`. This replaces it with a `dis` walk over `func.__code__`, which reads the same information already in memory.
+
+Closure cells and the globals named in `co_names` supply the values directly, and a walk over the instruction stream recovers the attribute paths the function actually takes. The closure alone cannot express those: a captured `holder` whose graph lives at `holder.graph` is reachable only if something records that `graph` is loaded off `holder`.
+
+Both implementations over-declare — a node can reference a graph it n

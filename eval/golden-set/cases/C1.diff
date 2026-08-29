@@ -1,0 +1,26 @@
+diff --git a/libs/langgraph/pyproject.toml b/libs/langgraph/pyproject.toml
+index ad9c98ea28d..e3d95cfec83 100644
+--- a/libs/langgraph/pyproject.toml
++++ b/libs/langgraph/pyproject.toml
+@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
+ 
+ [project]
+ name = "langgraph"
+-version = "1.2.10"
++version = "1.2.11"
+ description = "Building stateful, multi-actor applications with LLMs"
+ authors = []
+ requires-python = ">=3.10"
+diff --git a/libs/langgraph/uv.lock b/libs/langgraph/uv.lock
+index b55f5b2f6f1..a3d49f446ad 100644
+--- a/libs/langgraph/uv.lock
++++ b/libs/langgraph/uv.lock
+@@ -1436,7 +1436,7 @@ wheels = [
+ 
+ [[package]]
+ name = "langgraph"
+-version = "1.2.10"
++version = "1.2.11"
+ source = { editable = "." }
+ dependencies = [
+     { name = "langchain-core" },

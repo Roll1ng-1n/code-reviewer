@@ -1,0 +1,11 @@
+fix(checkpoint): collect writes at plain-value seed in delta channel history
+
+Fixes langchain-ai/langgraph#8384
+
+Reported by @Aarkin7, with two self-contained runnable repros and a search of the existing issues that turned up nothing. The report also pinned the shape of the bug precisely: the first write after migrating a thread to `DeltaChannel` is dropped, silently and permanently.
+
+`InMemorySaver.get_delta_channel_history` skipped the writes stored at the ancestor it seeded from whenever that ancestor's blob was a plain value rather than a `_DeltaSnapshot`, silently dropping the first write made after migrating a thread to `DeltaChannel`.
+
+### Why the old rule was wrong
+
+A stored blob is the value *entering* its checkpoint; the writes stored under that same checkpoint are what produce its child. That's true for `_DeltaSnapshot` blobs and pre-delta plain values al
