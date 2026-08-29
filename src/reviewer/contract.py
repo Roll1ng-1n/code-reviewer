@@ -17,7 +17,9 @@ schema-v1 Report 契约（Spec #12；findings 契约定稿于 Wayfinder 票 #6�
 
 metadata 是开放映射（additive 演进，不升 schema_version）：#16 起恒含
 ``description_source``（"explicit" | "commits" | "none"，描述来源标注），
-空 diff 短路报告额外含 ``no_changes: true``；消费方须容忍未知键。
+空 diff 短路报告额外含 ``no_changes: true``；#17 起正常路径（非空 diff）
+额外含 ``context_stats``（上下文组装预算统计：结构地图行数/截断标志、
+邻域文件数/token 近似/截断标志等）；消费方须容忍未知键。
 """
 
 from __future__ import annotations

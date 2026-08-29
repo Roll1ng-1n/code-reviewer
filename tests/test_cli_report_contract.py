@@ -57,6 +57,7 @@ def test_report_five_section_contract(run_cli, diff_file, findings_json, make_fi
     assert set(metadata) == {
         "repo", "base_ref", "head_ref", "model", "spec_kb", "duration_ms", "timestamp",
         "description_source",  # #16：描述来源标注（additive，不升 schema_version）
+        "context_stats",  # #17：上下文组装预算统计（additive，不升 schema_version）
     }
     assert metadata["model"] == "scripted-fake"
     assert metadata["repo"] == diff_file.parent.name
@@ -66,6 +67,20 @@ def test_report_five_section_contract(run_cli, diff_file, findings_json, make_fi
     assert metadata["spec_kb"] == {"loaded": False, "documents": 0, "hash": None}
     assert isinstance(metadata["duration_ms"], int)
     assert "+00:00" in metadata["timestamp"]
+    # #17：context_stats 全键可观测（回放 --repo 指向 tmp：被改 src/calc.py 不在快照 → 邻域 0）
+    stats = metadata["context_stats"]
+    assert set(stats) == {
+        "structure_map_lines", "structure_map_truncated",
+        "changed_py_files", "unresolved_files",
+        "neighborhood_files", "neighborhood_tokens", "neighborhood_truncated",
+    }
+    assert stats["changed_py_files"] == 1
+    assert stats["unresolved_files"] == 1
+    assert stats["neighborhood_files"] == 0
+    assert stats["neighborhood_tokens"] == 0
+    assert stats["structure_map_lines"] > 0
+    assert stats["structure_map_truncated"] is False
+    assert stats["neighborhood_truncated"] is False
 
 
 def test_optional_suggestion_omitted_when_absent(run_cli, diff_file, findings_json, make_finding) -> None:

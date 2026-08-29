@@ -40,13 +40,24 @@ _SYSTEM_PROMPT = """你是资深代码审查专家，负责「业务逻辑一致
 """
 
 
-def _user_prompt(diff: str, description: str) -> str:
+def _user_prompt(
+    diff: str, description: str, structure_map: str = "", neighborhood: str = ""
+) -> str:
+    """配方形态 user prompt（#17，语义同源 prototype/risk-p1/run.py 的 build_prompts）：
+
+    结构地图块 + diff 块 + 描述块 + 邻域块；无对应上下文时该块整体省略，
+    不留空标题（严重度锚点与输出契约在 system prompt，恒在）。
+    """
     parts: list[str] = []
-    if description.strip():
-        parts.append(f"## 意图描述\n{description.strip()}\n")
+    if structure_map.strip():
+        parts.append(f"## 仓库结构地图\n{structure_map.strip()}")
     parts.append(f"## 变更 diff（unified，行号为新侧）\n```diff\n{diff}\n```")
-    parts.append("\n请审查这个改动。")
-    return "\n".join(parts)
+    if description.strip():
+        parts.append(f"## 意图描述\n{description.strip()}")
+    if neighborhood.strip():
+        parts.append(f"## import 邻域（被改文件的直接依赖）\n{neighborhood.strip()}")
+    parts.append("请审查这个改动。")
+    return "\n\n".join(parts)
 
 
 def _parse_raw_findings(raw: str) -> list[Any]:
@@ -68,7 +79,12 @@ def make_logic_expert(provider: ModelProvider) -> Callable[[dict], dict]:
     def expert_logic(state: dict) -> dict:
         raw = provider.complete(
             system=_SYSTEM_PROMPT,
-            user=_user_prompt(state["diff"], state.get("description", "")),
+            user=_user_prompt(
+                state["diff"],
+                state.get("description", ""),
+                state.get("structure_map", ""),  # #17：context-assembly 产出
+                state.get("neighborhood", ""),
+            ),
         )
         validated: list[dict[str, Any]] = []
         for item in _parse_raw_findings(raw):

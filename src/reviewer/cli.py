@@ -9,6 +9,8 @@ argparse 默认 error() 退出码 2 会与 concerns 撞码，故自定义 Parser
 check 基线 = merge-base HEAD <ref 缺省 config.base>；描述来源 = 显式参数
 （--description / --description-file，二选一）> 提交信息自动拼接（metadata
 .description_source 标注）> 无；非 git 目录 → 64。
+上下文组装（#17）：context-assembly 图节点产出结构地图 / import 邻域 / 预算统计，
+经 metadata.context_stats 可观测（additive，不升 schema_version）。
 """
 
 from __future__ import annotations
@@ -122,11 +124,13 @@ def _metadata(
     duration_ms: int,
     description_source: str,
     no_changes: bool,
+    context_stats: dict | None = None,
 ) -> dict:
     """Report metadata（#16 起 additive 开放键，schema_version 不升，见 contract.py 注释）。
 
     恒含 ``description_source``（"explicit" | "commits" | "none"）；空 diff 短路
-    报告额外携带 ``no_changes: true``（机器可区分「审过无发现」与「无可审」）。
+    报告额外携带 ``no_changes: true``（机器可区分「审过无发现」与「无可审」）；
+    正常路径额外携带 ``context_stats``（#17 上下文预算统计，预算超限与降级可观测）。
     """
     meta: dict = {
         "repo": repo.resolve().name,
@@ -140,6 +144,8 @@ def _metadata(
     }
     if no_changes:
         meta["no_changes"] = True
+    if context_stats is not None:
+        meta["context_stats"] = context_stats  # #17：additive，不升 schema_version
     return meta
 
 
@@ -184,6 +190,7 @@ def _run_review(
             duration_ms=duration_ms,
             description_source=description_source,
             no_changes=False,
+            context_stats=final.get("context_stats"),  # #17：上下文预算统计
         ),
     }
 
