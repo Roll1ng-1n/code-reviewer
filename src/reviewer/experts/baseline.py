@@ -8,9 +8,10 @@ from collections.abc import Callable
 from typing import Any
 
 from pydantic import ValidationError
+from langchain.agents import create_agent
 
 from ..contract import Finding
-from ..model import ModelProvider
+from ..model import ModelProvider, ProviderChatModel
 from .base import limit_findings, parse_raw_findings, user_prompt
 from . import architecture, logic, spec, style
 
@@ -69,16 +70,18 @@ def make_baseline_expert(provider: ModelProvider) -> Callable[[dict], dict]:
     """
     def expert_node(state: dict) -> dict:
         enabled = state.get("enabled_experts", [])
-        raw = provider.complete(
-            system=build_fusion_system_prompt(enabled),
-            user=user_prompt(
+        agent = create_agent(ProviderChatModel(provider), tools=[],
+                             system_prompt=build_fusion_system_prompt(enabled))
+        result = agent.invoke({"messages": [{"role": "user", "content": user_prompt(
                 state["diff"],
                 state.get("description", ""),
                 state.get("structure_map", ""),  # #17：context-assembly 产出
                 state.get("neighborhood", ""),
                 state.get("spec_kb_text", ""),
-            ),
-        )
+            )}]})
+        raw = result["messages"][-1].content
+        if not isinstance(raw, str):
+            raise ValueError("Baseline model returned non-text content")
         findings: list[dict[str, Any]] = []
         for item in parse_raw_findings(raw):
             try:

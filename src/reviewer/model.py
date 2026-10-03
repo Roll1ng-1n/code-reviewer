@@ -13,6 +13,11 @@ import urllib.request
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol, runtime_checkable
 
+from langchain_core.language_models.chat_models import BaseChatModel
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.outputs import ChatGeneration, ChatResult
+from pydantic import PrivateAttr
+
 from .config import Config, ConfigError
 
 DEFAULT_MODEL = "deepseek-chat"
@@ -27,6 +32,33 @@ class ModelProvider(Protocol):
     model_name: str
 
     def complete(self, *, system: str, user: str) -> str: ...
+
+
+class ProviderChatModel(BaseChatModel):
+    """Adapt the same ModelProvider to create_agent without a second API client."""
+
+    _provider: ModelProvider = PrivateAttr()
+
+    def __init__(self, provider: ModelProvider):
+        super().__init__()
+        self._provider = provider
+
+    @property
+    def _llm_type(self) -> str:
+        return "reviewer-model-provider"
+
+    @property
+    def _identifying_params(self) -> dict[str, Any]:
+        return {"model_name": self._provider.model_name}
+
+    def _generate(self, messages: list[BaseMessage], stop=None, run_manager=None, **kwargs) -> ChatResult:
+        if any(not isinstance(message, (SystemMessage, HumanMessage))
+               or not isinstance(message.content, str) for message in messages):
+            raise ValueError("Baseline accepts text system/user messages only")
+        system = "\n\n".join(message.content for message in messages if isinstance(message, SystemMessage))
+        user = "\n\n".join(message.content for message in messages if isinstance(message, HumanMessage))
+        raw = self._provider.complete(system=system, user=user)
+        return ChatResult(generations=[ChatGeneration(message=AIMessage(content=raw))])
 
 
 class DeepSeekProvider:

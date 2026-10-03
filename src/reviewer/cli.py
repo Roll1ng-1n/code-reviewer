@@ -68,7 +68,7 @@ class _ArgumentParser(argparse.ArgumentParser):
 def _add_common_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--diff-file", type=Path,
-        help="回放模式：从固定 diff 文件读入（评估地基）；缺省走真实 git 输入",
+        help="回放模式：从 UTF-8 diff 文件读入；用 - 从 stdin 读取；缺省走真实 git 输入",
     )
     parser.add_argument(
         "--repo", type=Path, default=Path("."),
@@ -454,7 +454,11 @@ def _run_command(args: argparse.Namespace, *, config: Config, default_mode: str)
     if args.diff_file is not None:
         # ---- 回放模式（评估地基）：--repo 指向被审代码的快照仓库 ----
         try:
-            diff = args.diff_file.read_text(encoding="utf-8")
+            if str(args.diff_file) == "-":
+                buffer = getattr(sys.stdin, "buffer", None)
+                diff = buffer.read().decode("utf-8") if buffer is not None else sys.stdin.read()
+            else:
+                diff = args.diff_file.read_text(encoding="utf-8")
         except (OSError, UnicodeError) as exc:
             print(f"reviewer: 无法读取 UTF-8 diff 文件 {args.diff_file}：{exc}", file=sys.stderr)
             return EXIT_USAGE_ERROR
