@@ -33,11 +33,21 @@ class SpecKbConfig:
 
 @dataclass
 class ModelConfig:
-    """模型配置节：provider/name 可配；密钥只走 api_key_env 指定的环境变量。"""
+    """模型配置：云端密钥只走环境变量，本地 GGUF 权重由 path 指定。"""
 
     provider: str = "deepseek"
     name: str = "deepseek-chat"
     api_key_env: str = "DEEPSEEK_API_KEY"
+    path: str | None = None
+
+
+@dataclass
+class PrecheckConfig:
+    """默认预检仅从本地 GGUF 文件推理；联网必须在 CLI 显式允许。"""
+
+    model: ModelConfig = field(
+        default_factory=lambda: ModelConfig(provider="llama_cpp", name="local-code")
+    )
 
 
 @dataclass
@@ -60,6 +70,7 @@ class Config:
     base: str = "main"
     spec_kb: SpecKbConfig = field(default_factory=SpecKbConfig)
     model: ModelConfig = field(default_factory=ModelConfig)
+    precheck: PrecheckConfig = field(default_factory=PrecheckConfig)
     experts: ExpertsConfig = field(default_factory=ExpertsConfig)
     source: Path | None = None  # 配置文件路径；未发现文件时 None
 
@@ -96,6 +107,7 @@ def load_config(cwd: Path | None = None) -> Config:
         config.base = _parse_str(doc["base"], "base", path)
     config.spec_kb = _parse_spec_kb(doc.get("spec_kb"), path)
     config.model = _parse_model(doc.get("model"), path)
+    config.precheck = _parse_precheck(doc.get("precheck"), path)
     config.experts = _parse_experts(doc.get("experts"), path)
     return config
 
@@ -153,18 +165,35 @@ def _parse_spec_kb(value: Any, path: Path) -> SpecKbConfig:
     return defaults
 
 
-def _parse_model(value: Any, path: Path) -> ModelConfig:
-    section = _parse_section(value, "model", path)
-    defaults = ModelConfig()
+def _parse_model(
+    value: Any, path: Path, *, label: str = "model", defaults: ModelConfig | None = None
+) -> ModelConfig:
+    section = _parse_section(value, label, path)
+    defaults = defaults if defaults is not None else ModelConfig()
     if "provider" in section:
-        defaults.provider = _parse_str(section["provider"], "model.provider", path)
+        defaults.provider = _parse_str(section["provider"], f"{label}.provider", path)
     if "name" in section:
-        defaults.name = _parse_str(section["name"], "model.name", path)
+        defaults.name = _parse_str(section["name"], f"{label}.name", path)
     if "api_key_env" in section:
         defaults.api_key_env = _parse_str(
-            section["api_key_env"], "model.api_key_env", path
+            section["api_key_env"], f"{label}.api_key_env", path
         )
+    if "path" in section:
+        defaults.path = _parse_str(section["path"], f"{label}.path", path)
     return defaults
+
+
+def _parse_precheck(value: Any, path: Path) -> PrecheckConfig:
+    section = _parse_section(value, "precheck", path)
+    model = _parse_model(
+        section.get("model"), path, label="precheck.model", defaults=PrecheckConfig().model
+    )
+    if model.provider != "llama_cpp":
+        raise ConfigError(
+            "precheck.model.provider 必须为 llama_cpp（本地推理）；"
+            "远程模型请配置 model，并在预检时显式传入 --allow-network"
+        )
+    return PrecheckConfig(model=model)
 
 
 def _parse_experts(value: Any, path: Path) -> ExpertsConfig:

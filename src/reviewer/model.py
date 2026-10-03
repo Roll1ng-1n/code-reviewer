@@ -10,6 +10,8 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
+from pathlib import Path
+from threading import Lock
 from collections.abc import Callable, Sequence
 from typing import Any, Protocol, runtime_checkable
 
@@ -107,16 +109,64 @@ class DeepSeekProvider:
         return data["choices"][0]["message"]["content"]
 
 
+class LlamaCppProvider:
+    """进程内 GGUF 推理，只加载本地文件，不下载模型、不请求 HTTP 服务。"""
+
+    def __init__(self, model: str, model_path: Path) -> None:
+        try:
+            from llama_cpp import Llama
+        except (ImportError, OSError, RuntimeError) as exc:
+            raise ConfigError(
+                '本地推理依赖未安装或无法加载：请安装 "reviewer[local]"（或项目的 .[local]）'
+            ) from exc
+        self.model_name = model
+        self._lock = Lock()
+        try:
+            self._engine = Llama(
+                model_path=str(model_path), n_ctx=8192, n_gpu_layers=0, verbose=False
+            )
+        except Exception as exc:
+            raise ConfigError(f"无法加载本地 GGUF 模型 {model_path}：{exc}") from exc
+
+    def complete(self, *, system: str, user: str) -> str:
+        # 专家图会并行调用同一 provider，llama.cpp 上下文必须串行访问。
+        with self._lock:
+            data = self._engine.create_chat_completion(
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+                temperature=0,
+                response_format={"type": "json_object"},
+            )
+        return data["choices"][0]["message"]["content"]
+
+    def close(self) -> None:
+        with self._lock:
+            self._engine.close()
+
+
 def make_provider(config: Config) -> ModelProvider:
-    """按配置路由 provider（#15）：MVP 仅支持 deepseek。
+    """按生效配置路由 DeepSeek 或进程内本地 GGUF provider。
 
     密钥只从 ``config.model.api_key_env`` 指定的环境变量读取（user story 17），
     不接受配置文件传入；构造期缺失 → :class:`ConfigError`（配置错误，CLI 退出码 64），
     与运行期模型调用失败（→ 70）语义区分。
     """
+    if config.model.provider == "llama_cpp":
+        if not config.model.path or not config.model.path.strip():
+            raise ConfigError(
+                "离线预检需要配置 precheck.model.path（本地 GGUF 文件）；"
+                "若要使用远程 model，显式传入 --allow-network"
+            )
+        root = config.source.resolve().parent if config.source else Path.cwd()
+        model_path = (root / config.model.path).resolve()
+        if not model_path.is_file():
+            raise ConfigError(f"本地模型文件不存在或不是文件：{model_path}")
+        return LlamaCppProvider(config.model.name, model_path)
     if config.model.provider != "deepseek":
         raise ConfigError(
-            f"model.provider 暂只支持 \"deepseek\"（MVP 单模型），配置为 {config.model.provider!r}"
+            f"model.provider 只支持 deepseek 或 llama_cpp，配置为 {config.model.provider!r}"
         )
     key = os.environ.get(config.model.api_key_env)
     if not key:

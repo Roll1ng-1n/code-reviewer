@@ -29,6 +29,7 @@ import sqlite3
 import sys
 import tempfile
 import time
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import uuid4
@@ -124,6 +125,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
     precheck = sub.add_parser("precheck", help="提交前预检：导师式报告（默认 mentor）")
     _add_common_args(precheck)
+    precheck.add_argument(
+        "--allow-network", action="store_true",
+        help="显式允许预检使用 model 配置（可能将 diff/上下文/规范发送给远程模型）；"
+             "缺省使用 precheck.model 本地 GGUF 推理",
+    )
 
     pr = sub.add_parser("pr", help="reviewer pr <n>（预留命令面，PR 集成为后续章节）")
     pr.add_argument("number", type=int)
@@ -297,15 +303,7 @@ def _run_review(
     # #19 接线：spec 三层来源打包送达 spec-kb 节点（KB 空 → router 剔除 spec）
     # #22 接线：--arm 送达 router（panel 四专家 fan-out / baseline 单融合专家）
     # #23 接线：interactive 才构造 SqliteSaver + 挂 confirm 节点，批处理零开销
-    checkpointer = _make_checkpointer() if interactive else None
-    graph = build_review_graph(
-        provider,
-        experts_enabled=config.experts.enabled,
-        spec_sources=spec_sources,
-        arm=arm,
-        checkpointer=checkpointer,
-        interactive=interactive,
-    )
+    checkpointer = None
     initial_state = {
         "diff": diff,
         "mode": mode,
@@ -316,6 +314,15 @@ def _run_review(
     }
     start = time.monotonic()
     try:
+        checkpointer = _make_checkpointer() if interactive else None
+        graph = build_review_graph(
+            provider,
+            experts_enabled=config.experts.enabled,
+            spec_sources=spec_sources,
+            arm=arm,
+            checkpointer=checkpointer,
+            interactive=interactive,
+        )
         if interactive:
             final = _invoke_interactive(graph, initial_state, repo)
         else:
@@ -327,8 +334,13 @@ def _run_review(
         raise ReviewerError(f"评审运行失败：{exc}") from exc
     finally:
         connection = getattr(checkpointer, "conn", None)
-        if connection is not None:
-            connection.close()
+        try:
+            if connection is not None:
+                connection.close()
+        finally:
+            close_provider = getattr(provider, "close", None)
+            if close_provider is not None:
+                close_provider()
     duration_ms = round((time.monotonic() - start) * 1000)
     # #19：metadata.spec_kb 三键（additive，contract.py 注释）
     kb_state = final.get("spec_kb") or {}
@@ -404,6 +416,10 @@ def _cmd_check(args: argparse.Namespace, config: Config) -> int:
 
 
 def _cmd_precheck(args: argparse.Namespace, config: Config) -> int:
+    if not args.allow_network:
+        if config.precheck.model.provider != "llama_cpp":
+            raise ConfigError("默认预检只允许本地 llama_cpp；联网须显式传入 --allow-network")
+        config = replace(config, model=config.precheck.model)
     return _run_command(args, config=config, default_mode="mentor")
 
 

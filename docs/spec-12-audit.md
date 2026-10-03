@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | 1 一条命令进行预检 | `precheck` Git 输入与 CLI Report；`tests/test_git_input.py` | 已实现，需要模型配置 |
 | 2 导师式解释和建议 | Mentor 渲染显示 rationale/suggestion；`tests/test_cli_human_render.py` | 已实现，建议字段按契约可选 |
-| 3 预检默认不联网 | 非空 diff 仍使用 DeepSeek 远程模型，未有离线模型方案 | **未完成，等待结项范围答复** |
+| 3 预检默认不联网 | 本地 GGUF 进程内推理，缺模型明确报错、不回退云端；联网需 `--allow-network`；`tests/test_offline_precheck.py` | 已实现；本地模型准备见 `docs/offline-precheck.md` |
 | 4 严重度分组和 nit 折叠 | Gatekeeper 渲染与 `--show-nits`；`tests/test_render.py` | 已实现 |
 | 5 架构维度 | architecture charter、确定性路由；`tests/test_expert_panel.py` | 已实现，模型效果不由脚本化测试证明 |
 | 6 CI 退出码 | pass/blocked/concerns → 0/1/2；`tests/test_cli_exit_codes.py` | 已实现 |
@@ -21,7 +21,7 @@
 | 15 描述或提交意图 | 显式描述优先、提交信息回退；`tests/test_git_input.py` | 已实现 |
 | 16 非 Python 仓库配置 | cwd `.reviewer.yaml`，不依赖打包标记；`tests/test_config.py` | 已实现 |
 | 17 密钥来自环境变量 | `make_provider` 配置校验；`tests/test_config.py` | 已实现 |
-| 18 可替换模型抽象 | `ModelProvider`、ScriptedProvider 和 LangChain 适配器 | 已实现；产品工厂当前仅 DeepSeek |
+| 18 可替换模型抽象 | `ModelProvider`、ScriptedProvider、LangChain 适配器、DeepSeek/llama_cpp 工厂 | 已实现 |
 | 19 确定性路由 | 配置过滤、空库规则与 Send；`tests/test_expert_panel.py` | 已实现 |
 | 20 空库不启动 spec | `enabled_experts` 可观测；`tests/test_baseline_regressions.py` | 已实现 |
 | 21 聚合保守合并 | 异常整组保留，未知复核 id 整批保留；`tests/test_aggregator.py`、`tests/test_safety_regressions.py` | 已实现 |
@@ -46,4 +46,6 @@ golden set v2 的 13 个真实 PR、14 条标注和 3 个干净对照保留原�
 
 ## 结项条件
 
-#12 尚不能按原规格全部完成关闭：User Story 3 未实现。已请求用户决定按现有 MVP 结项并将离线预检记录为后续需求，或继续落实离线预检；尚未收到答复。该答复不会由自动继续、时间经过或绿色测试代替。
+27 条 User Stories 的产品能力与命名契约已落实。预检默认离线，只有显式 `--allow-network` 才选择根 `model` 配置；未配置本地模型时明确退出，不给出假审查报告。无需更改原规格范围。
+
+本轮新增 12 个离线预检回归：修复前 11 个失败，修复后全部通过。完整套件 206 passed，全程零真实模型请求。当前环境未安装 llama-cpp-python，也未提供 GGUF 权重，因此没有宣称完成真实本地模型推理或模型效果评估；这项验证边界不改变已实现的默认离线行为。

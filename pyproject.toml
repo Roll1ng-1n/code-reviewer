@@ -20,6 +20,7 @@ reviewer = "reviewer.cli:main"
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+local = ["llama-cpp-python>=0.3,<1.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
