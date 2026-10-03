@@ -164,7 +164,7 @@ def test_review_filter_drops_unconfident_with_warning(capsys) -> None:
     provider = ScriptedProvider(
         by_expert={
             REVIEW_MARKER: _findings_json(
-                [{"file": "a.py", "line": 1, "severity": "nit", "category": "logic", "message": "有把握"}]
+                [{"id": "C001"}]
             ),
         }
     )

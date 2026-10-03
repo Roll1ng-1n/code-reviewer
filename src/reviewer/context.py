@@ -43,6 +43,16 @@ def _estimate_tokens(text: str) -> int:
     return len(text) // _CHARS_PER_TOKEN
 
 
+def _confined_path(path: Path, root: Path) -> Path | None:
+    """Resolve before any read; relative ancestry also handles Windows drives."""
+    try:
+        resolved = path.resolve()
+        resolved.relative_to(root)
+        return resolved
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
 def build_structure_map(repo_root: str | None) -> tuple[str, dict[str, Any]]:
     """结构地图：``os.walk`` 目录树 + ``AGENTS.md`` 模块职责（存在时并入），≤500 行。
 
@@ -55,7 +65,7 @@ def build_structure_map(repo_root: str | None) -> tuple[str, dict[str, Any]]:
     stats: dict[str, Any] = {"structure_map_lines": 0, "structure_map_truncated": False}
     if not repo_root:
         return "", stats
-    root = Path(repo_root)
+    root = Path(repo_root).resolve()
     if not root.is_dir():
         return "", stats
 
@@ -66,19 +76,21 @@ def build_structure_map(repo_root: str | None) -> tuple[str, dict[str, Any]]:
             d
             for d in dirnames
             if d not in EXCLUDED_DIRS and not d.endswith(".egg-info")
+            and _confined_path(Path(dirpath) / d, root) is not None
         )
         rel = Path(dirpath).relative_to(root)
         prefix = "" if rel == Path(".") else rel.as_posix() + "/"
         if prefix:
             lines.append(prefix)
         for name in sorted(filenames):
-            lines.append(prefix + name)
+            if _confined_path(Path(dirpath) / name, root) is not None:
+                lines.append(prefix + name)
 
-    agents_md = root / "AGENTS.md"
-    if agents_md.is_file():
+    agents_md = _confined_path(root / "AGENTS.md", root)
+    if agents_md is not None and agents_md.is_file():
         try:
             agents_content = agents_md.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeError):
             agents_content = ""  # 读不了 ≠ 审不了：跳过该块，不致命
         if agents_content.strip():
             lines.append("")
@@ -191,43 +203,54 @@ def build_import_neighborhood(
         "neighborhood_files": 0,
         "neighborhood_tokens": 0,
         "neighborhood_truncated": False,
+        "outside_paths_skipped": 0,
     }
     changed = _changed_py_files(diff)
     stats["changed_py_files"] = len(changed)
     if not repo_root or not changed:
         return "", stats
-    root = Path(repo_root)
+    root = Path(repo_root).resolve()
 
     # 依赖解析：保序去重，排除被改文件自身（自引用 import 不算依赖）
-    changed_resolved = {(root / rel).resolve() for rel in changed}
+    changed_resolved = {_confined_path(root / rel, root) for rel in changed}
     dep_paths: list[Path] = []
     seen: set[Path] = set()
     for rel in changed:
-        file_path = root / rel
+        file_path = _confined_path(root / rel, root)
+        if file_path is None:
+            stats["outside_paths_skipped"] += 1
+            continue
         if not file_path.is_file():
             stats["unresolved_files"] += 1  # 不在快照中（纯回放常见）：跳过
             continue
         try:
             tree = ast.parse(file_path.read_text(encoding="utf-8"))
-        except (OSError, SyntaxError, ValueError):
+        except (OSError, SyntaxError, ValueError, UnicodeError):
             stats["unresolved_files"] += 1  # 解析失败只跳过该文件，不致命
             continue
         for cand in _iter_dep_candidates(tree, file_path, root):
-            if not cand.is_file():
+            resolved = _confined_path(cand, root)
+            if resolved is None:
+                stats["outside_paths_skipped"] += 1
                 continue
-            resolved = cand.resolve()
+            if not resolved.is_file():
+                continue
             if resolved in changed_resolved or resolved in seen:
                 continue
             seen.add(resolved)
-            dep_paths.append(cand)
+            dep_paths.append(resolved)
 
     # 预算内拼装：超预算按文件顺序截断（首文件即超 → 截其内容塞满预算）
     blocks: list[str] = []
     used_tokens = 0
     for dep in dep_paths:
+        dep = _confined_path(dep, root)
+        if dep is None:
+            stats["outside_paths_skipped"] += 1
+            continue
         try:
             content = dep.read_text(encoding="utf-8")
-        except OSError:
+        except (OSError, UnicodeError):
             stats["unresolved_files"] += 1  # 依赖读不到：跳过，不致命
             continue
         try:

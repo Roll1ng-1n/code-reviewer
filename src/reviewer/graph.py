@@ -161,12 +161,8 @@ def build_review_graph(
         user story 8：没有规范文档时系统跳过规范检查而不是编造规则，「可留空」
         在图结构上落地（spec 分支此时根本不存在）。
 
-        #22：``arm == "baseline"`` 时跳过 enabled 过滤——融合专家不区分启停
-        （四维合一，一次调用），但仍保留 KB 空判断（融合 charter 的 spec 维度
-        本就「无规范库→空」），并写 ``arm`` 标记供条件边据此分流。
+        两臂使用相同启停和 KB 空过滤规则。
         """
-        if arm == "baseline":
-            return {"arm": "baseline"}
         enabled = [
             name for name in dict.fromkeys(experts_enabled) if name in EXPERT_NODES
         ]
@@ -188,15 +184,13 @@ def build_review_graph(
                 "experts.enabled 过滤后为空：至少启用一个已知专家"
                 f"（{' / '.join(EXPERT_NODES)}）{hint}"
             )
-        return {"enabled_experts": enabled, "arm": "panel"}
+        return {"enabled_experts": enabled, "arm": arm}
 
     def _route_sends(state: ReviewState) -> list[Send]:
         """条件边：按 ``arm`` 运行时构造 Send 列表（分支数由数据/臂决定）。
 
         - ``arm == "baseline"``：单个 Send → ``expert_baseline``（融合专家），
-          task 与专家团同形（diff + 模式 + 描述 + #17 组装产物）；不注入
-          ``spec_kb_text``——融合 charter 的 spec 维度「无规范库→空」，与
-          compare.py arm_baseline 配方对齐（基线臂本来就不带 Spec KB 全文）。
+          task 与专家团同形，并携带实际启用维度及 spec 维度的 Spec KB。
         - ``arm == "panel"``：按 ``enabled_experts`` fan-out 四专家并行，
           ``spec_kb_text`` 仅随 spec 专家 Send 携带（#19）。
         """
@@ -207,9 +201,12 @@ def build_review_graph(
             "structure_map": state.get("structure_map", ""),
             "neighborhood": state.get("neighborhood", ""),
         }
-        if state.get("arm") == "baseline":
-            return [Send(BASELINE_NODE, {**context})]
         kb_text = (state.get("spec_kb") or {}).get("rendered_text", "")
+        if state.get("arm") == "baseline":
+            return [Send(BASELINE_NODE, {**context,
+                "enabled_experts": state["enabled_experts"],
+                "spec_kb_text": kb_text if "spec" in state["enabled_experts"] else "",
+            })]
         sends: list[Send] = []
         for name in state["enabled_experts"]:
             task = {**context}

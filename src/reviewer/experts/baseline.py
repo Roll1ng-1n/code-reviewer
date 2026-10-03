@@ -1,21 +1,4 @@
-"""单 Agent 基线专家（实现 10/11 #22）：四维 charter 融合的单次调用对照臂。
-
-这是 Spec #12「LangGraph 工程护栏」里 ``create_agent`` 单 Agent 基线的产品化
-落地。当前依赖 langgraph==1.2.6，其 ``langgraph.prebuilt`` 只暴露已弃用的
-``create_react_agent``（无 ``create_agent``，后者为 2.x API）。为 MVP 简洁，
-基线臂以**普通单节点实现**——语义等价于 ``create_agent`` 的单智能体：一个
-节点一次模型调用，无工具循环、无多轮，输入/输出与专家团共享同一
-``ReviewState`` 与 ``Finding`` schema。
-
-与专家团（``experts/panel`` 四专家 Send fan-out）的唯一差异是**分解**：
-基线把四维 charter 融合进一个 system prompt，由单一模型在一次调用里同时
-覆盖 architecture / logic / spec / style，category 由模型按 finding 内容在
-四类中自行判定（``parse_raw_findings`` 复用 base 的容错解析，``Finding``
-Pydantic 校验把 category 限制在四类合法值内，越界丢弃并告警）。
-
-charter 文本移植自对照实验原型 ``eval/golden-set/compare.py`` 的
-``arm_baseline`` 四维融合 SYSTEM（勿改原型，仅移植）。
-"""
+"""一次融合审查：与 Expert Panel 共享 charter、启用维度、上下文和 style 护栏。"""
 
 from __future__ import annotations
 
@@ -28,22 +11,22 @@ from pydantic import ValidationError
 
 from ..contract import Finding
 from ..model import ModelProvider
-from .base import parse_raw_findings, user_prompt
+from .base import limit_findings, parse_raw_findings, user_prompt
+from . import architecture, logic, spec, style
 
 # 融合 charter 的角色标识（供 ScriptedProvider by_expert 路由匹配——与四专家
 # identity 互不冲突，测试可按「融合专家」身份脚本化零网络）
 FUSION_MARKER = "四维融合审查专家"
 
 # 四维融合 charter（移植自 compare.py arm_baseline SYSTEM 的四维文案）
-FUSION_CHARTER = """你是资深代码审查专家，同时负责四个审查维度：
-- 架构（architecture）：审查模块边界、依赖方向、接口契约——改动是否破坏现有结构；跨实现的一致性（公共契约放宽时各实现是否跟得上）。
-- 业务逻辑（logic）：对照 PR 描述的意图，审查业务逻辑的正确性与遗漏；行为与文档声明是否一致；测试是否钉住行为边界。
-- 规范（spec）：对照成文规范逐条检查违规。本仓库无成文规范库，直接输出空数组。
-- 风格（style）：吸收 nit 级问题：命名、可维护性、文档与代码一致性、测试完备性。限定只出 nit 严重度。"""
+_CHARTERS = {
+    "architecture": ("架构", architecture.CHARTER),
+    "logic": ("业务逻辑", logic.CHARTER),
+    "spec": ("规范", spec.CHARTER),
+    "style": ("风格", style.CHARTER + f"最多报告 {style.MAX_FINDINGS} 条。"),
+}
 
-# 严重度锚点（与 base._SEVERITY_ANCHORS 同源；基线臂无 style「只出 nit」的
-# 代码侧保险——style 只是四维之一，模型可出 blocker/concern，故不施加
-# nit_only 双保险，与 compare.py arm_baseline 配方对齐）
+# 严重度锚点；style 维度另施加与 panel 相同的代码护栏。
 _SEVERITY_ANCHORS = """\
 - blocker：功能错误 / 数据损坏 / 安全问题 / 必然崩溃，或明确的接口契约破坏——不修不能合并
 - concern：特定条件下可能出错、边界 / 健壮性缺失、可疑的逻辑偏差、行为与文档声明不符——需作者回应
@@ -61,15 +44,18 @@ _OUTPUT_CONTRACT = (
 )
 
 
-def build_fusion_system_prompt() -> str:
+def build_fusion_system_prompt(enabled: list[str] | None = None) -> str:
     """组装单 Agent 基线的 system prompt（语义同源 compare.py arm_baseline SYSTEM）。"""
+    enabled = list(_CHARTERS) if enabled is None else enabled
+    charter = "\n".join(f"- {_CHARTERS[name][0]}（{name}）：{_CHARTERS[name][1]}" for name in enabled)
+    if "spec" not in enabled:
+        charter += "\n规范（spec）未启用；不作规范判断，不编造规范。"
     return (
-        f"你是{FUSION_MARKER}，资深代码审查专家，同时负责四个审查维度。\n\n"
-        f"## 你的 Charter\n{FUSION_CHARTER}\n\n"
+        f"你是{FUSION_MARKER}，负责以下已启用审查维度。\n\n"
+        f"## 你的 Charter\n{charter}\n\n"
         f"## 严重度锚点\n{_SEVERITY_ANCHORS}\n\n"
         "只报告有把握的问题；宁缺毋滥。\n"
-        "category 按每条 finding 的内容在 architecture/logic/spec/style 四类中"
-        "自行判定。\n"
+        f"category 仅可取已启用维度：{' / '.join(enabled)}。\n"
         + _OUTPUT_CONTRACT
     )
 
@@ -81,17 +67,16 @@ def make_baseline_expert(provider: ModelProvider) -> Callable[[dict], dict]:
     维度），``Finding`` Pydantic 校验把 category 限制在四类合法值内，越界
     丢弃并告警——与专家团节点同容错契约。
     """
-    system_prompt = build_fusion_system_prompt()
-
     def expert_node(state: dict) -> dict:
+        enabled = state.get("enabled_experts", [])
         raw = provider.complete(
-            system=system_prompt,
+            system=build_fusion_system_prompt(enabled),
             user=user_prompt(
                 state["diff"],
                 state.get("description", ""),
                 state.get("structure_map", ""),  # #17：context-assembly 产出
                 state.get("neighborhood", ""),
-                state.get("spec_kb_text", ""),  # 基线臂不注入 Spec KB（见 graph）
+                state.get("spec_kb_text", ""),
             ),
         )
         findings: list[dict[str, Any]] = []
@@ -104,7 +89,13 @@ def make_baseline_expert(provider: ModelProvider) -> Callable[[dict], dict]:
                     file=sys.stderr,
                 )
                 continue
+            if finding.category not in enabled:
+                print(f"reviewer: warning: 丢弃未启用维度 {finding.category} 的 finding", file=sys.stderr)
+                continue
             findings.append(finding.model_dump(exclude_none=True))
+        styles = limit_findings([f for f in findings if f["category"] == "style"],
+                                category="style", nit_only=True, max_findings=style.MAX_FINDINGS)
+        findings = [f for f in findings if f["category"] != "style"] + styles
         return {"expert_findings": findings}
 
     return expert_node

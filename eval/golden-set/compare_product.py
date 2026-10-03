@@ -11,8 +11,8 @@ DeepSeek）：本脚本改为**驱动产品 CLI**（Replay 模式）跑 golden s
 共享模型 / 上下文 / schema / aggregate（含复核过滤，FP 控制层对两臂同等施加——
 比 #11 更严格地隔离「分解」这个唯一变量）。
 
-**parity 配置说明**：不传 ``--repo``（golden cases 无快照仓库），只有 diff +
-描述，无结构地图——与 #11 内联双臂的上下文配方对齐（#11 也只喂 diff + PR 描述）。
+**parity 配置说明**：隔离 cwd + 明确模型配置 + 显式空 ``--repo`` 快照，
+只有 diff + 描述，无结构地图、依赖或自动规范。
 judge 与被评模型同族（deepseek-chat，无第二供应商 key），如实记录为已知限制。
 
 运行：python eval/golden-set/compare_product.py --runs 3   （需 DEEPSEEK_API_KEY）
@@ -27,16 +27,42 @@ import statistics
 import subprocess
 import sys
 import time
+import tempfile
 import urllib.request
+from contextlib import contextmanager
+from datetime import datetime
 from pathlib import Path
 
+from reviewer.contract import Finding, derive_verdict, exit_code_for
+
 BASE = Path(__file__).resolve().parent
-# 项目根（用于 subprocess cwd，保证 reviewer 包与 .reviewer.yaml 可发现）
+# 只用于定位产品 Python 源码；不得用作实验 cwd 或快照。
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 API_URL = "https://api.deepseek.com/chat/completions"
 MODEL = "deepseek-chat"
 DEFAULT_RUNS = 3
+JUDGE_MODEL = "deepseek-chat"
+
+
+class EvaluationError(RuntimeError):
+    """Infrastructure or recipe failure; never an empty successful review."""
+
+
+def evaluation_config(model: str) -> dict:
+    return {"model": {"provider": "deepseek", "name": model,
+                      "api_key_env": "DEEPSEEK_API_KEY"},
+            "spec_kb": {"paths": []},
+            "experts": {"enabled": ["architecture", "logic", "spec", "style"]}}
+
+
+@contextmanager
+def evaluation_workspace(model: str):
+    with tempfile.TemporaryDirectory(prefix="reviewer-eval-") as directory:
+        cwd = Path(directory)
+        (cwd / "snapshot").mkdir()
+        (cwd / ".reviewer.yaml").write_text(json.dumps(evaluation_config(model)), encoding="utf-8")
+        yield cwd
 
 # 与 evaluate.py 同款的 judge 语义匹配协议（#4 调研：文件硬约束 + LLM judge
 # 一对一 + 同族 judge 如实标注）
@@ -55,7 +81,7 @@ def llm(system: str, user: str) -> str:
     key = os.environ["DEEPSEEK_API_KEY"]
     body = json.dumps(
         {
-            "model": MODEL,
+            "model": JUDGE_MODEL,
             "messages": [
                 {"role": "system", "content": system},
                 {"role": "user", "content": user},
@@ -108,9 +134,11 @@ def judge(golden: dict, finding: dict) -> bool:
                 "请判定。",
             )
         )
-        return v.get("same_underlying_issue") is True
-    except (json.JSONDecodeError, KeyError):
-        return False
+        if not isinstance(v, dict) or type(v.get("same_underlying_issue")) is not bool:
+            raise ValueError("judge 缺少布尔判决 same_underlying_issue")
+        return v["same_underlying_issue"]
+    except (json.JSONDecodeError, KeyError, ValueError) as exc:
+        raise EvaluationError(f"judge 响应无效：{exc}") from exc
 
 
 def match(case: dict, findings: list[dict]) -> tuple[int, int, int]:
@@ -138,13 +166,53 @@ def match(case: dict, findings: list[dict]) -> tuple[int, int, int]:
     return tp, fn, fp
 
 
-def run_arm_case(arm: str, case: dict) -> list[dict]:
-    """用 subprocess 调产品 CLI（Replay 模式）跑单 case 单臂，返回 findings 列表。
+def _validate_report(report: object, returncode: int, model: str) -> list[dict]:
+    if not isinstance(report, dict) or report.get("schema_version") != "1":
+        raise EvaluationError("缺少或非法 schema-v1 Report")
+    if report.get("mode") != "gatekeeper":
+        raise EvaluationError("Report.mode 无效")
+    findings = report.get("findings")
+    if not isinstance(findings, list):
+        raise EvaluationError("Report.findings 必须是数组")
+    for i, item in enumerate(findings, 1):
+        Finding.model_validate(item, strict=True)
+        if item.get("id") != f"F{i:03d}":
+            raise EvaluationError("Report.findings 编号无效")
+    summary = report.get("summary")
+    expected = derive_verdict(findings)
+    counts = summary.get("counts") if isinstance(summary, dict) else None
+    if (not isinstance(summary, dict) or not isinstance(summary.get("headline"), str)
+            or not isinstance(counts, dict) or counts != expected["counts"]
+            or any(type(value) is not int for value in counts.values())
+            or summary.get("verdict") != expected["verdict"]
+            or returncode != exit_code_for(expected["verdict"])):
+        raise EvaluationError("Report.summary / Findings / 退出码不一致")
+    metadata = report.get("metadata")
+    required = {"repo", "base_ref", "head_ref", "model", "spec_kb", "duration_ms", "timestamp"}
+    if not isinstance(metadata, dict) or not required.issubset(metadata):
+        raise EvaluationError("Report.metadata 缺失必要字段")
+    if (not isinstance(metadata["repo"], str)
+            or type(metadata["duration_ms"]) is not int or metadata["duration_ms"] < 0
+            or not isinstance(metadata["timestamp"], str)):
+        raise EvaluationError("Report.metadata 字段无效")
+    datetime.fromisoformat(metadata["timestamp"])
+    if metadata["model"] != model:
+        raise EvaluationError(f"被评模型不符：要求 {model}，实际 {metadata['model']}")
+    stats = metadata.get("context_stats")
+    if (metadata["spec_kb"] != {"loaded": False, "documents": 0, "hash": None}
+            or not isinstance(stats, dict) or stats.get("structure_map_lines") != 0
+            or stats.get("neighborhood_files") != 0
+            or metadata.get("no_changes") or metadata["base_ref"] is not None
+            or metadata["head_ref"] is not None):
+        raise EvaluationError("Report 不符合 diff+description 空快照配方")
+    return findings
 
-    用 ``sys.executable -m reviewer``（不用裸 python，确保同解释器）；cwd =
-    项目根（reviewer 包 + .reviewer.yaml 可发现）。不传 ``--repo``（parity：
-    无快照仓库，只有 diff + 描述，与 #11 内联双臂配方对齐）。
-    """
+
+def run_arm_case(arm: str, case: dict, *, model: str = MODEL, workspace: Path | None = None) -> list[dict]:
+    """Isolated Replay; valid empty Findings succeed, execution failures raise."""
+    if workspace is None:
+        with evaluation_workspace(model) as isolated:
+            return run_arm_case(arm, case, model=model, workspace=isolated)
     diff = BASE / "cases" / f"{case['id']}.diff"
     desc = BASE / "cases" / f"{case['id']}.desc.txt"
     cmd = [
@@ -158,14 +226,16 @@ def run_arm_case(arm: str, case: dict) -> list[dict]:
         str(desc),
         "--arm",
         arm,
+        "--repo",
+        str(workspace / "snapshot"),
         "--json",
     ]
     # 强制子进程 stdout/stderr 用 utf-8（Windows 下默认 GBK 会与 --json 中文
     # 冲突）；errors="replace" 兜底避免解码崩溃（warning 中文属非关键输出）。
-    env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
+    env = {**os.environ, "PYTHONIOENCODING": "utf-8", "PYTHONPATH": str(REPO_ROOT / "src")}
     proc = subprocess.run(
         cmd,
-        cwd=str(REPO_ROOT),
+        cwd=str(workspace),
         capture_output=True,
         text=True,
         encoding="utf-8",
@@ -174,22 +244,12 @@ def run_arm_case(arm: str, case: dict) -> list[dict]:
         timeout=600,
     )
     if proc.returncode not in (0, 1, 2):
-        # 非 verdict 退出码（64/70 等）→ 记为空 findings 并告警，不中断整轮
-        print(
-            f"  [warn] {case['id']} {arm} CLI 退出码 {proc.returncode}："
-            f"{proc.stderr.strip()[:200]}",
-            file=sys.stderr,
-        )
-        return []
+        raise EvaluationError(f"CLI 退出码 {proc.returncode}：{proc.stderr.strip()[:200]}")
     try:
         report = json.loads(proc.stdout)
-        return report.get("findings", [])
-    except json.JSONDecodeError:
-        print(
-            f"  [warn] {case['id']} {arm} 输出非 JSON：{proc.stdout[:200]}",
-            file=sys.stderr,
-        )
-        return []
+        return _validate_report(report, proc.returncode, model)
+    except (ValueError, TypeError) as exc:
+        raise EvaluationError(f"非法产品 Report：{exc}") from exc
 
 
 def f1_of(tp: int, fn: int, fp: int) -> float:
@@ -204,12 +264,15 @@ def main() -> int:
         description="golden set 配对比较（产品 CLI 驱动）"
     )
     parser.add_argument("--runs", type=int, default=DEFAULT_RUNS, help="每臂重复次数")
+    parser.add_argument("--model", default=MODEL, help="明确指定被评模型；Report 必须与之相符")
     args = parser.parse_args()
+    if args.runs < 1:
+        parser.error("--runs 必须至少为 1")
 
     cases = json.loads((BASE / "golden.json").read_text(encoding="utf-8"))["cases"]
     print(
         f"配对比较（产品 CLI）：{len(cases)} case × 2 臂 × {args.runs} 次，"
-        f"模型={MODEL}（judge 同族，无第二 key）\n"
+        f"被评模型={args.model}；judge={JUDGE_MODEL}\n"
     )
 
     arms = ["panel", "baseline"]
@@ -223,8 +286,12 @@ def main() -> int:
             tp = fn = fp = 0
             t0 = time.time()
             for case in cases:
-                findings = run_arm_case(arm, case)
-                t, n, p = match(case, findings)
+                try:
+                    findings = run_arm_case(arm, case, model=args.model)
+                    t, n, p = match(case, findings)
+                except Exception as exc:
+                    print(f"评估失败：case={case['id']} arm={arm} run={run + 1}：{exc}", file=sys.stderr)
+                    return 1
                 tp += t
                 fn += n
                 fp += p
@@ -265,16 +332,18 @@ def main() -> int:
     out = BASE / "results"
     out.mkdir(exist_ok=True)
     result_path = out / "compare-product-001.json"
-    result_path.write_text(
-        json.dumps(
+    result_text = json.dumps(
             {
-                "model": MODEL,
+                "model": args.model,
+                "evaluated_model": args.model,
+                "judge_model": JUDGE_MODEL,
+                "configuration": evaluation_config(args.model),
+                "recipe": "diff+description",
                 "runs": args.runs,
-                "judge": f"{MODEL} (同族，无第二 key)",
+                "judge": JUDGE_MODEL,
                 "driver": "product-cli",
                 "arm": {"panel": "四专家并行", "baseline": "单 Agent 融合专家"},
-                "parity_note": "不传 --repo：golden cases 无快照仓库，只有 diff+描述，"
-                "与 #11 内联双臂上下文配方对齐",
+                "parity_note": "隔离 cwd + 明确配置 + 显式空 --repo；两臂只有 diff+描述",
                 "panel": panel,
                 "baseline": baseline,
                 "paired_delta": {
@@ -286,9 +355,17 @@ def main() -> int:
             },
             ensure_ascii=False,
             indent=2,
-        ),
-        encoding="utf-8",
     )
+    pending = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=out,
+                                         prefix=".compare-product-", suffix=".tmp", delete=False) as file:
+            pending = Path(file.name)
+            file.write(result_text)
+        pending.replace(result_path)
+    finally:
+        if pending is not None:
+            pending.unlink(missing_ok=True)
     print(f"\nresults -> {result_path}")
     return 0
 

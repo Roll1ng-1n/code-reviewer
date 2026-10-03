@@ -26,6 +26,8 @@
 from __future__ import annotations
 
 import subprocess
+import tempfile
+from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -57,6 +59,7 @@ class GitInput:
     base_ref: str
     head_ref: str
     commits_text: str
+    source_commit: str | None = None
 
 
 def _run_git(repo: Path, *args: str) -> str:
@@ -122,13 +125,64 @@ def collect_check_diff(repo: Path, ref: str) -> GitInput:
     提交信息上下文 = ``git log <merge-base>..HEAD``（subject + body），
     供描述自动拼接，超长截断。
     """
-    merge_base = _run_git(repo, "merge-base", "HEAD", ref).strip()
+    head = _run_git(repo, "rev-parse", "--verify", "HEAD^{commit}").strip()
+    merge_base = _run_git(repo, "merge-base", head, ref).strip()
     if not merge_base:
         raise GitInputError(f"git merge-base HEAD {ref} 无输出：两者可能无共同祖先")
-    diff = _run_git(repo, "diff", f"{merge_base}..HEAD")
-    commits_text = _run_git(repo, "log", f"{merge_base}..HEAD", "--format=%s%n%b").strip()
+    diff = _run_git(repo, "diff", f"{merge_base}..{head}")
+    commits_text = _run_git(repo, "log", f"{merge_base}..{head}", "--format=%s%n%b").strip()
     if len(commits_text) > MAX_COMMITS_TEXT_CHARS:
         commits_text = (
             commits_text[:MAX_COMMITS_TEXT_CHARS].rstrip() + "\n…（提交信息超长，已截断）"
         )
-    return GitInput(diff=diff, base_ref=merge_base, head_ref="HEAD", commits_text=commits_text)
+    return GitInput(diff=diff, base_ref=merge_base, head_ref="HEAD", commits_text=commits_text,
+                    source_commit=head)
+
+
+@contextmanager
+def committed_snapshot(repo: Path, commit: str):
+    """Materialize regular Git blobs only, without checkout or archive attributes.
+
+    Symlinks and submodules cannot lead reads outside the isolated source view.
+    All object ids come from the pinned tree, including when HEAD moves later.
+    """
+    listing = _run_git(repo, "ls-tree", "-rz", "--full-tree", commit)
+    entries: list[tuple[str, str]] = []
+    for record in listing.split("\0"):
+        if not record:
+            continue
+        details, name = record.split("\t", 1)
+        mode, kind, oid = details.split()
+        if mode in ("100644", "100755") and kind == "blob":
+            entries.append((name, oid))
+    with tempfile.TemporaryDirectory(prefix="reviewer-source-") as directory:
+        root = Path(directory).resolve()
+        # Batch the immutable blob reads; binary lengths prevent newline corruption.
+        try:
+            proc = subprocess.run(
+                ["git", "-C", str(repo), "cat-file", "--batch"],
+                input="".join(oid + "\n" for _, oid in entries).encode("ascii"),
+                capture_output=True, timeout=GIT_TIMEOUT_S,
+            )
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            raise GitInputError(f"无法读取被审提交源码：{exc}") from exc
+        if proc.returncode:
+            raise GitInputError("无法读取被审提交的 Git 对象")
+        offset = 0
+        for name, oid in entries:
+            end = proc.stdout.find(b"\n", offset)
+            header = proc.stdout[offset:end].decode("ascii").split()
+            if len(header) != 3 or header[:2] != [oid, "blob"]:
+                raise GitInputError("被审提交的 Git 对象响应无效")
+            size = int(header[2])
+            offset = end + 1
+            content = proc.stdout[offset:offset + size]
+            offset += size + 1
+            target = (root / name).resolve()
+            try:
+                target.relative_to(root)
+            except ValueError as exc:
+                raise GitInputError("被审提交包含越界源码路径") from exc
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(content)
+        yield root

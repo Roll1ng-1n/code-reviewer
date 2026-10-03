@@ -42,12 +42,15 @@ def _baseline_provider(
     回传同批 finding 更直白，避免空结果保守语义干扰断言）。
     """
     keeps = findings if review_keeps is None else review_keeps
-    return ScriptedProvider(
-        by_expert={
-            FUSION_MARKER: _findings_response(findings),
-            REVIEW_MARKER: _findings_response(keeps),
-        }
-    )
+    def respond(system, user):
+        if FUSION_MARKER in system:
+            return _findings_response(findings)
+        candidates = json.loads(user.split("【findings】", 1)[1])
+        return _findings_response([
+            {"id": candidate["id"]} for candidate in candidates
+            if any(all(candidate.get(k) == v for k, v in keep.items()) for keep in keeps)
+        ])
+    return ScriptedProvider(callback=respond)
 
 
 def test_baseline_arm_single_fusion_call(

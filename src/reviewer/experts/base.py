@@ -99,6 +99,22 @@ def parse_raw_findings(raw: str) -> list[Any]:
     return payload["findings"]
 
 
+def limit_findings(findings: list[dict[str, Any]], *, category: str,
+                   nit_only: bool = False, max_findings: int | None = None) -> list[dict[str, Any]]:
+    """Shared severity/count guard used by both Review Arms."""
+    if nit_only:
+        kept = [f for f in findings if f["severity"] == "nit"]
+        if len(kept) != len(findings):
+            print(f"reviewer: warning: {category} 专家丢弃 {len(findings) - len(kept)} 条非 nit 发现"
+                  "（charter 限定只出 nit）", file=sys.stderr)
+        findings = kept
+    if max_findings is not None and len(findings) > max_findings:
+        print(f"reviewer: warning: {category} 专家发现 {len(findings)} 条超出上限 "
+              f"{max_findings} 条，截断保留前 {max_findings} 条", file=sys.stderr)
+        findings = findings[:max_findings]
+    return findings
+
+
 def make_expert(
     provider: ModelProvider,
     *,
@@ -132,30 +148,15 @@ def make_expert(
             ),
         )
         findings: list[dict[str, Any]] = []
-        dropped_non_nit = 0
         for item in parse_raw_findings(raw):
             try:
                 finding = Finding.model_validate({**item, "category": category})
             except ValidationError as exc:
                 print(f"reviewer: warning: 丢弃未通过校验的 finding：{exc}", file=sys.stderr)
                 continue
-            if nit_only and finding.severity != "nit":
-                dropped_non_nit += 1
-                continue
             findings.append(finding.model_dump(exclude_none=True))
-        if dropped_non_nit:
-            print(
-                f"reviewer: warning: {category} 专家丢弃 {dropped_non_nit} 条非 nit 发现"
-                "（charter 限定只出 nit）",
-                file=sys.stderr,
-            )
-        if max_findings is not None and len(findings) > max_findings:
-            print(
-                f"reviewer: warning: {category} 专家发现 {len(findings)} 条超出上限 "
-                f"{max_findings} 条，截断保留前 {max_findings} 条",
-                file=sys.stderr,
-            )
-            findings = findings[:max_findings]
+        findings = limit_findings(findings, category=category,
+                                  nit_only=nit_only, max_findings=max_findings)
         return {"expert_findings": findings}
 
     return expert_node

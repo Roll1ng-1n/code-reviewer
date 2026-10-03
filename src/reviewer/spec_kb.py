@@ -209,30 +209,29 @@ def _merge_docs(layers: list[list[tuple[Path, Path | None]]]) -> list[SpecDocume
     """逐层合并（层序 = 优先级升序，后到者覆盖同名 → CLI 层最高优先）。
 
     - 文档名已存在 → 覆盖（同内容重复引用为 no-op，不同内容即高优先层胜出）；
-    - 内容 sha256 已见 → 去重跳过（同内容两路径只计一次，先到者保留名字）；
+    - 完成同名覆盖后按内容 sha256 去重（同内容两路径只计一次，先到者保留名字）；
     - 其余平级共存（不同名不同内容互不覆盖）。
     """
     by_name: dict[str, SpecDocument] = {}
-    seen_hashes: set[str] = set()
     for layer in layers:
         for file, source_root in layer:
             try:
                 content = file.read_text(encoding="utf-8")
-            except OSError as exc:
+            except (OSError, UnicodeError) as exc:
                 print(
                     f"reviewer: warning: 无法读取规范文档 {file}：{exc}", file=sys.stderr
                 )
                 continue
             name = _doc_name(file, source_root)
-            if name in by_name:
-                by_name[name] = _make_doc(name, file, content)  # 同名：覆盖（含 no-op）
-                continue
-            digest = hashlib.sha256(content.encode("utf-8")).hexdigest()
-            if digest in seen_hashes:
-                continue  # 内容去重
             by_name[name] = _make_doc(name, file, content)
+    seen_hashes: set[str] = set()
+    documents: list[SpecDocument] = []
+    for doc in by_name.values():
+        digest = hashlib.sha256(doc.content.encode("utf-8")).hexdigest()
+        if digest not in seen_hashes:
             seen_hashes.add(digest)
-    return list(by_name.values())
+            documents.append(doc)
+    return documents
 
 
 def _changed_paths(diff: str) -> list[str]:

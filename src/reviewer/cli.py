@@ -24,12 +24,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import sqlite3
 import sys
 import tempfile
 import time
 from datetime import datetime, timezone
 from pathlib import Path
+from uuid import uuid4
+from contextlib import nullcontext
 
 from langgraph.types import Command
 
@@ -42,7 +45,7 @@ from .contract import (
     SCHEMA_VERSION,
     exit_code_for,
 )
-from .gitinput import GitInputError, collect_check_diff, collect_precheck_diff
+from .gitinput import GitInputError, collect_check_diff, collect_precheck_diff, committed_snapshot
 from .graph import build_review_graph
 from .model import make_provider
 from .render import render_human
@@ -188,14 +191,10 @@ class _ConfirmAbort(Exception):
 
 
 def _interactive_thread_id(repo: Path, diff: str) -> str:
-    """#23：thread_id 由命令参数派生（同任务可恢复，不同任务隔离）。
-
-    SqliteSaver 需要 ``config["configurable"]["thread_id"]`` 区分线程；此处取被审
-    仓库名 + diff 文本 hash 前 12 位，保证「同仓库同改动」恢复时命中同一 checkpoint，
-    不同任务互不串扰。
-    """
-    digest = hashlib.sha256(diff.encode("utf-8")).hexdigest()[:12]
-    return f"{repo.resolve().name}:{digest}"
+    """每次新审查使用独立执行身份；单次 interrupt/resume 复用同一身份。"""
+    identity = str(repo.resolve()) + "\0" + diff
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()[:16]
+    return f"{digest}:{uuid4().hex}"
 
 
 def _make_checkpointer():
@@ -232,7 +231,7 @@ def _invoke_interactive(graph, initial_state: dict, repo: Path) -> dict:
 
     ``graph.invoke`` → 捕获 ``__interrupt__`` 载荷 → 渲染确认列表 → 读用户决策 →
     ``graph.invoke(Command(resume=保留列表), config)`` 循环，直至无 interrupt。
-    ``thread_id`` 由 ``_interactive_thread_id`` 派生，保证同任务可恢复。
+    新调用分配独立 thread_id；本循环的 resume 始终复用该 id。
     """
     config = {"configurable": {"thread_id": _interactive_thread_id(repo, initial_state["diff"])}}
     result = graph.invoke(initial_state, config=config)
@@ -268,17 +267,11 @@ def _resolve_decision(decision: str, findings: list[dict]) -> list[dict]:
     if decision == "q":
         raise _ConfirmAbort()
     if decision:
-        # 序号集：解析 "1,3" / "1 3" 为保留的 finding 编号
-        wanted: set[int] = set()
-        for token in decision.replace(",", " ").split():
-            if token.isdigit():
-                wanted.add(int(token))
-        if wanted:
-            kept = []
-            for i, f in enumerate(findings, start=1):
-                if i in wanted:
-                    kept.append(f)
-            return kept
+        if re.fullmatch(r"[0-9]+(?:(?:\s*,\s*|\s+)[0-9]+)*", decision):
+            wanted = {int(token) for token in re.split(r"[\s,]+", decision)}
+            if all(1 <= number <= len(findings) for number in wanted):
+                return [f for i, f in enumerate(findings, start=1) if i in wanted]
+        print("reviewer: 无效确认输入，保守保留全部 Findings", file=sys.stderr)
     # 空 / 无法识别 → 保守全部保留
     return findings
 
@@ -296,18 +289,21 @@ def _run_review(
     spec_sources: SpecSources,
     arm: str,
     interactive: bool = False,
+    source_repo: Path | None = None,
+    source_commit: str | None = None,
 ) -> dict:
     provider = make_provider(config)
     # #18 接线：experts.enabled 送达 router（纯规则过滤出运行时分支集合）
     # #19 接线：spec 三层来源打包送达 spec-kb 节点（KB 空 → router 剔除 spec）
     # #22 接线：--arm 送达 router（panel 四专家 fan-out / baseline 单融合专家）
     # #23 接线：interactive 才构造 SqliteSaver + 挂 confirm 节点，批处理零开销
+    checkpointer = _make_checkpointer() if interactive else None
     graph = build_review_graph(
         provider,
         experts_enabled=config.experts.enabled,
         spec_sources=spec_sources,
         arm=arm,
-        checkpointer=_make_checkpointer() if interactive else None,
+        checkpointer=checkpointer,
         interactive=interactive,
     )
     initial_state = {
@@ -316,7 +312,7 @@ def _run_review(
         "description": description,
         # #16 接线：被审仓库根路径进 state——#17（结构地图/import 邻域）
         # 与 #19（约定目录基准）从这里取
-        "repo_root": str(repo.resolve()),
+        "repo_root": str((source_repo or repo).resolve()),
     }
     start = time.monotonic()
     try:
@@ -329,11 +325,15 @@ def _run_review(
         raise
     except Exception as exc:
         raise ReviewerError(f"评审运行失败：{exc}") from exc
+    finally:
+        connection = getattr(checkpointer, "conn", None)
+        if connection is not None:
+            connection.close()
     duration_ms = round((time.monotonic() - start) * 1000)
     # #19：metadata.spec_kb 三键（additive，contract.py 注释）
     kb_state = final.get("spec_kb") or {}
     kb_documents = kb_state.get("documents") or []
-    return {
+    report = {
         "schema_version": SCHEMA_VERSION,
         "mode": mode,
         "summary": final["summary"],
@@ -354,6 +354,11 @@ def _run_review(
             },
         ),
     }
+    if source_commit:
+        report["metadata"]["source_commit"] = source_commit
+    report["metadata"]["enabled_experts"] = final.get("enabled_experts", [])
+    report["metadata"]["arm"] = arm
+    return report
 
 
 def _empty_changes_report(
@@ -433,14 +438,15 @@ def _run_command(args: argparse.Namespace, *, config: Config, default_mode: str)
     )
 
     explicit_description: str | None = None
+    source_commit: str | None = None
     if args.description is not None:
         explicit_description = args.description
     elif args.description_file is not None:
         try:
             explicit_description = args.description_file.read_text(encoding="utf-8")
-        except OSError as exc:
+        except (OSError, UnicodeError) as exc:
             print(
-                f"reviewer: 无法读取描述文件 {args.description_file}：{exc}",
+                f"reviewer: 无法读取 UTF-8 描述文件 {args.description_file}：{exc}",
                 file=sys.stderr,
             )
             return EXIT_USAGE_ERROR
@@ -449,8 +455,8 @@ def _run_command(args: argparse.Namespace, *, config: Config, default_mode: str)
         # ---- 回放模式（评估地基）：--repo 指向被审代码的快照仓库 ----
         try:
             diff = args.diff_file.read_text(encoding="utf-8")
-        except OSError as exc:
-            print(f"reviewer: 无法读取 diff 文件：{exc}", file=sys.stderr)
+        except (OSError, UnicodeError) as exc:
+            print(f"reviewer: 无法读取 UTF-8 diff 文件 {args.diff_file}：{exc}", file=sys.stderr)
             return EXIT_USAGE_ERROR
         if explicit_description is not None:
             description, description_source = explicit_description, "explicit"
@@ -477,6 +483,7 @@ def _run_command(args: argparse.Namespace, *, config: Config, default_mode: str)
             description = git_in.commits_text
             description_source = "commits" if description else "none"
         base_ref, head_ref = git_in.base_ref, git_in.head_ref
+        source_commit = git_in.source_commit
 
     # 空 diff（git 无改动 / 回放空文件）→ 短路：pass 空报告，零模型调用
     if not diff.strip():
@@ -488,19 +495,16 @@ def _run_command(args: argparse.Namespace, *, config: Config, default_mode: str)
             head_ref=head_ref,
         )
     else:
-        report = _run_review(
-            diff=diff,
-            mode=mode,
-            description=description,
-            description_source=description_source,
-            repo=args.repo,
-            config=config,
-            base_ref=base_ref,
-            head_ref=head_ref,
-            spec_sources=spec_sources,
-            arm=args.arm,
-            interactive=args.interactive,
-        )
+        source_view = (committed_snapshot(args.repo, source_commit)
+                       if source_commit else nullcontext(args.repo))
+        with source_view as source_repo:
+            report = _run_review(
+                diff=diff, mode=mode, description=description,
+                description_source=description_source, repo=args.repo, config=config,
+                base_ref=base_ref, head_ref=head_ref, spec_sources=spec_sources,
+                arm=args.arm, interactive=args.interactive,
+                source_repo=source_repo, source_commit=source_commit,
+            )
     _emit(report, as_json=args.as_json, show_nits=args.show_nits)
     return exit_code_for(report["summary"]["verdict"])
 
@@ -517,7 +521,7 @@ def main(argv: list[str] | None = None) -> int:
             print("reviewer: pr 命令为预留命令面（PR 集成为后续章节）", file=sys.stderr)
             return EXIT_UNAVAILABLE
         raise ReviewerError(f"未知命令：{args.command}")  # pragma: no cover
-    except ConfigError as exc:
+    except (ConfigError, GitInputError) as exc:
         # 配置层错误（YAML/字段/密钥缺失，含 make_provider 构造期）→ 64；
         # 运行期模型调用失败走 ReviewerError → 70，两者语义区分。
         print(f"reviewer: {exc}", file=sys.stderr)

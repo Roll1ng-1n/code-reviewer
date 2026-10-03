@@ -76,10 +76,12 @@ def load_config(cwd: Path | None = None) -> Config:
     """
     root = Path.cwd() if cwd is None else cwd
     path = root / CONFIG_FILE_NAME
-    if not path.is_file():
-        return Config()
     try:
         doc = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return Config()
+    except (OSError, UnicodeError) as exc:
+        raise ConfigError(f"无法读取 UTF-8 配置文件 {path}：{exc}") from exc
     except yaml.YAMLError as exc:
         raise ConfigError(f"配置文件 {path} 不是合法 YAML：{exc}") from exc
     if doc is None:  # 空文件 = 全缺省

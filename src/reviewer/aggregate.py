@@ -14,7 +14,7 @@
    合并后代码侧逐条校验「严重度未高于组内原最高」，违规降回组内最高——硬保证
    「只降不升」不依赖模型自觉。
 3. **复核过滤（LLM，批量）**：一次调用把所有候选 finding 传入，system「逐条判断
-   是否有把握，无把握的丢弃」，返回保留列表（按 message/file 匹配回原对象，
+   是否有把握，无把握的丢弃」，返回保留列表（按候选 id 匹配回原对象，
    匹配失败保守保留）。被滤掉的 finding 在 stderr 计数告警，可观测。
 
 收尾 ``number_findings(sort_findings(final))`` 与 #18 透传版同契约（F001.. 连续
@@ -104,7 +104,7 @@ def _merge_group(
     if len(group) < 2:
         return group
 
-    original_max_rank = max(_severity_rank(f.get("severity", "")) for f in group)
+    original_max_rank = min(_severity_rank(f.get("severity", "")) for f in group)
     original_max_sev = min(
         (f.get("severity", "") for f in group),
         key=lambda s: _severity_rank(s),
@@ -170,8 +170,8 @@ def _review_filter(
 ) -> list[dict[str, Any]]:
     """复核过滤（LLM，批量）：一次调用逐条判断「是否有把握」，无把握的丢弃。
 
-    返回的保留列表按 (message, file) 匹配回原对象（模型可能省略字段），匹配
-    失败的保守保留（宁留勿删）。被滤掉的 finding 计数告警（stderr 可观测）。
+    返回的保留列表按独立候选 id 匹配回原对象。响应必须完整合法，未知、重复
+    id 或改写字段均导致整批保守保留。被滤掉的 finding 计数告警。
     任一异常 → 保守保留全部。
     """
     if not candidates:
@@ -182,11 +182,13 @@ def _review_filter(
         "这条 finding 是否有充分把握（描述清楚、有理有据、确为真实问题）。\n"
         "- 有把握的保留；无把握的丢弃\n"
         "- 不新增、不修改任何 finding 的内容，只做保留/丢弃二选一\n"
-        "- 输出仅保留你判断「有把握」的 finding 原样列表\n"
+        "- 每个候选的 id 是独立身份，只返回要保留的 id；不得重复、编造 id\n"
         "## 输出契约（严格 JSON，不要输出任何其它内容）\n"
-        '{"findings": [...]}'
+        '{"findings": [{"id": "C001"}]}'
     )
-    user = f"【findings】{json.dumps(candidates, ensure_ascii=False)}"
+    indexed = {f"C{i:03d}": f for i, f in enumerate(candidates, start=1)}
+    payload = [{**f, "id": cid} for cid, f in indexed.items()]
+    user = f"【findings】{json.dumps(payload, ensure_ascii=False)}"
 
     try:
         raw = provider.complete(system=system, user=user)
@@ -195,32 +197,27 @@ def _review_filter(
         _warning(f"复核过滤 LLM 调用失败，保守保留全部 {len(candidates)} 条：{exc}")
         return candidates
 
-    # 按 (message, file) 建立原始对象索引（message 唯一性足够区分；file 辅助消歧）
-    index: dict[tuple[str, str], dict[str, Any]] = {}
-    for f in candidates:
-        index.setdefault((f.get("message", ""), f.get("file", "")), f)
-
     kept: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for item in kept_raw:
-        key = (item.get("message", ""), item.get("file", ""))
-        original = index.get(key)
-        if original is not None:
-            kept.append(original)  # 保守：返回原对象，不信任模型改写
-        else:
-            _warning(f"复核返回无法匹配回原对象的 finding（保守保留）：{item.get('message', '')}")
+        cid = item.get("id") if isinstance(item, dict) else None
+        if not isinstance(cid, str) or cid not in indexed or cid in seen:
+            _warning("复核响应包含缺失、未知或重复候选 id，保守保留全部")
+            return candidates
+        original = indexed[cid]
+        if any(key != "id" and (key not in original or value != original[key])
+               for key, value in item.items()):
+            _warning("复核响应改写候选内容，保守保留全部")
+            return candidates
+        seen.add(cid)
+        kept.append(original)
 
+    if not kept:
+        _warning("复核过滤结果为空的异常情况，保守保留全部")
+        return candidates
     dropped = len(candidates) - len(kept)
     if dropped > 0:
         _warning(f"复核过滤丢弃 {dropped} 条无把握 finding（{len(candidates)} → {len(kept)}）")
-    elif dropped < 0:
-        # 模型返回了比候选更多的保留项（异常），保守保留全部
-        _warning(f"复核返回 {len(kept_raw)} 条超过候选 {len(candidates)} 条，保守保留全部")
-        return candidates
-
-    if not kept and candidates:
-        # 模型把有把握的删光 → 保守保留全部
-        _warning("复核过滤结果为空的异常情况，保守保留全部")
-        return candidates
     return kept
 
 
